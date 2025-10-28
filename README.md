@@ -3,16 +3,16 @@ Super Agent Party的live 2d扩展！This is a Live 2D extension for the Super Ag
 
 ---
 
-Only the original code developed in this repository (e.g., the two SDK files live2d.min.js and live2dcubismcore.min.js) is open-sourced under the AGPL license; however, all Live2D-related code, assets, models, and other materials must comply with Cubism’s relevant agreements.
+Only the original code developed in this repository is open-sourced under the AGPL license (excluding files such as live2d.min.js and live2dcubismcore.min.js). However, all code, resources, models, and other materials related to Live2D must comply with the Cubism license agreements.  
 
-The official Cubism website is https://www.live2d.com/zh-CHS/
+The official Cubism website is https://www.live2d.com/  
 
-Please visit that page to review the applicable agreements!
+Please refer to the relevant agreements there!
 
 --- 
 
-仅本仓库开发的原创代码部分(例如：live2d.min.js和live2dcubismcore.min.js这两个SDK文件)以AGPL协议开源，但是live2d相关的一切代码、资源、模型等物料请遵守 Cubism 的有关协议。 
+仅本仓库开发的原创代码部分以AGPL协议开源(因此不包括：live2d.min.js和live2dcubismcore.min.js等文件)，但是live2d相关的一切代码、资源、模型等物料请遵守 Cubism 的有关协议。 
 
-Cubism官网为 https://www.live2d.com/zh-CHS/ 
+Cubism官网为 https://www.live2d.com/
 
 请移步此处查看相关协议！
