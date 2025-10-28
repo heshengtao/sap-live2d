@@ -383,7 +383,7 @@
         let dragStartY = 0;
         let modelX = 0;
         let modelY = 0;
-        let modelScale = 0.3;  // 初始缩放值
+        let modelScale = 0.2;  // 初始缩放值
         
         // 存储正在进行的动画
         const chunkAnimations = new Map();
@@ -1024,95 +1024,17 @@
 
         // 为单个语音块启动基于音频分析的口型同步
         async function startLipSyncForChunk(data) {
-            const chunkId = data.chunkIndex;
+            const audio = data.audioDataUrl;          // 保持 base64 完整
+            if (data.text) updateSubtitle(data.text, data.chunkIndex);
 
-            if (chunkAnimations.has(chunkId)) {
-                stopChunkAnimation(chunkId);
-            }
+            await model.speak(audio, {                // 一条调用：播放 + 口型
+                expression: data.expressions?.[0] ?? null,
+                resetExpression: false
+            });
 
-            if (!model) {
-                console.error('模型尚未准备好');
-                return;
-            }
-            
-            // 后端必须提供 Base64 编码的音频数据
-            if (!data.audioDataUrl) {
-                console.error(`Chunk ${chunkId} 缺少 'audioDataUrl'`);
-                return;
-            }
-
-            try {
-                const chunkState = {
-                    isPlaying: true,
-                    animationId: null,
-                    audio: null,
-                    audioSource: null,
-                    analyser: null
-                };
-                chunkAnimations.set(chunkId, chunkState);
-
-                // 初始化 Web Audio API 上下文
-                if (!currentAudioContext) {
-                    currentAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                }
-                // 激活 AudioContext
-                if (currentAudioContext.state === 'suspended') {
-                    await currentAudioContext.resume();
-                }
-
-                // 创建音频元素
-                const audio = new Audio();
-                audio.crossOrigin = 'anonymous';
-                audio.src = data.audioDataUrl;
-                audio.volume = 0.01; // 将音量设置为接近0，但不为0，以便仍能分析音频
-                chunkState.audio = audio;
-
-                await new Promise((resolve, reject) => {
-                    audio.addEventListener('canplaythrough', resolve, { once: true });
-                    audio.addEventListener('error', reject, { once: true });
-                    audio.load();
-                });
-
-                if (!chunkAnimations.has(chunkId)) {
-                    return; // 在加载时被取消
-                }
-
-                // 创建分析器节点 (Web Audio API)
-                const analyser = currentAudioContext.createAnalyser();
-                analyser.fftSize = 512; // 增加FFT大小以提高分析精度
-                analyser.smoothingTimeConstant = 0.4; // 增加平滑度，使口型变化更自然
-                chunkState.analyser = analyser;
-
-                // 创建媒体源节点并连接 (Web Audio API)
-                const audioSource = currentAudioContext.createMediaElementSource(audio);
-                audioSource.connect(analyser);
-                
-                // 创建一个增益节点(GainNode)用于控制音量
-                const gainNode = currentAudioContext.createGain();
-                gainNode.gain.value = 0.01; // 将音量设为0，完全静音
-                analyser.connect(gainNode);
-                gainNode.connect(currentAudioContext.destination); // 连接到输出
-                chunkState.audioSource = audioSource;
-                
-                // 保存增益节点，以便后续可以控制音量
-                chunkState.gainNode = gainNode;
-
-                await audio.play();
-
-                startChunkAnimation(chunkId, chunkState);
-
-                audio.addEventListener('ended', () => {
-                    console.log(`Chunk ${chunkId} 音频结束`);
-                    stopChunkAnimation(chunkId);
-                }, { once: true });
-
-            } catch (error) {
-                console.error(`为 Chunk ${chunkId} 启动口型同步时出错:`, error);
-                stopChunkAnimation(chunkId);
-            }
+            if (currentSubtitleChunkIndex === data.chunkIndex) clearSubtitle();
         }
-
-        /**
+                /**
          * 设置嘴部开合度
          * 处理不同Live2D模型的参数设置方式
          */
@@ -1318,28 +1240,9 @@
         /**
          * 停止所有正在播放的语音动画
          */
-        function stopAllChunkAnimations() {
-            console.log('正在停止所有的口型同步动画。');
-            for (const chunkId of chunkAnimations.keys()) {
-                stopChunkAnimation(chunkId);
-            }
-            chunkAnimations.clear();
-            
-            // 重置嘴部参数到闭嘴状态
-            if (model && model.internalModel) {
-                setMouth(0); // 使用通用方法设置嘴部闭合
-                
-                // 尝试重置嘴型形状参数
-                try {
-                    if (typeof model.internalModel.setParameterValueById === 'function') {
-                        model.internalModel.setParameterValueById('PARAM_MOUTH_FORM', 0);
-                    } else if (typeof model.internalModel.coreModel.setParameterValueById === 'function') {
-                        model.internalModel.coreModel.setParameterValueById('ParamMouthForm', 0);
-                    }
-                } catch (e) {
-                    // 忽略错误
-                }
-            }
+        function stopAllChunkAnimations(){
+            model.stopSpeaking?.();   // 立即停音并闭嘴
+            clearSubtitle();
         }
 
         // 初始化字幕元素
