@@ -148,6 +148,145 @@
             transition: opacity 0.3s ease;
             display: none;
         }
+
+        /* 模型选择对话框样式 */
+        #model-selector {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            max-width: 500px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            z-index: 10001;
+            padding: 20px;
+            display: none;
+            backdrop-filter: blur(10px);
+        }
+
+        .model-selector-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+
+        .model-selector-header h2 {
+            margin: 0;
+            font-size: 18px;
+            color: #333;
+        }
+
+        .model-selector-close {
+            cursor: pointer;
+            font-size: 20px;
+            color: #555;
+        }
+
+        .model-selector-body {
+            max-height: 300px;
+            overflow-y: auto;
+            margin-bottom: 15px;
+        }
+
+        .model-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 10px;
+            border-radius: 5px;
+            margin-bottom: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .model-item:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+
+        .model-item.selected {
+            background-color: rgba(0, 123, 255, 0.1);
+            border-left: 3px solid #007bff;
+        }
+
+        .model-item-name {
+            flex-grow: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .model-item-delete {
+            color: #ff4d4f;
+            margin-left: 10px;
+            visibility: hidden;
+        }
+
+        .model-item:hover .model-item-delete {
+            visibility: visible;
+        }
+
+        .model-selector-footer {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .custom-url-input {
+            display: flex;
+            gap: 10px;
+        }
+
+        .custom-url-input input {
+            flex-grow: 1;
+            padding: 8px 12px;
+            border: 1px solid #d9d9d9;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .btn {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background-color: #1890ff;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #40a9ff;
+        }
+
+        .btn-secondary {
+            background-color: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background-color: #e0e0e0;
+        }
+
+        /* 遮罩层 */
+        #overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 10000;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -163,6 +302,10 @@
         <div id="drag-handle" class="control-button">
             <i class="fas fa-arrows-alt"></i>
         </div>
+        <!-- 模型选择按钮 -->
+        <div id="model-handle" class="control-button">
+            <i class="fas fa-user-circle"></i>
+        </div>
         <!-- 字幕开关 -->
         <div id="subtitle-handle" class="control-button">
             <i class="fas fa-closed-captioning"></i>
@@ -177,10 +320,37 @@
         </div>
     </div>
 
+    <!-- 模型切换指示器 -->
+    <div id="model-switching-indicator">
+        <div>正在切换模型...</div>
+        <div id="model-switching-name" style="margin-top: 10px; font-size: 14px;"></div>
+    </div>
+
     <!-- 工具提示容器 -->
     <div id="tooltip-container">
         <div id="tooltip"></div>
     </div>
+
+    <!-- 模型选择对话框 -->
+    <div id="model-selector">
+        <div class="model-selector-header">
+            <h2>Select model</h2>
+            <div class="model-selector-close">×</div>
+        </div>
+        <div class="model-selector-body" id="model-list-container">
+            <!-- 模型列表将通过JavaScript动态生成 -->
+        </div>
+        <div class="model-selector-footer">
+            <div class="custom-url-input">
+                <input type="text" id="custom-model-url" placeholder="Enter a custom model URL or Path">
+                <button class="btn btn-secondary" id="add-custom-model">add</button>
+            </div>
+            <button class="btn btn-primary" id="apply-model-selection">Apply</button>
+        </div>
+    </div>
+
+    <!-- 遮罩层 -->
+    <div id="overlay"></div>
 
     <!-- 加载必要的脚本 -->
     <script src="pixi.min.js"></script>
@@ -206,12 +376,32 @@
         let audioAnalyzer = null;
         let audioGain = null;
 
+        // 模型交互相关变量
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let modelX = 0;
+        let modelY = 0;
+        let modelScale = 0.3;  // 初始缩放值
+        
         // 存储正在进行的动画
         const chunkAnimations = new Map();
         
         // 用于呼吸和眨眼的计时器
         let breathingTimer = null;
         let blinkingTimer = null;
+        
+        // 模型管理相关变量
+        let currentModelUrl = '';
+        let selectedModelUrl = '';
+        let defaultModels = [
+            {
+                name: "Shizuku (default)",
+                url: "https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display/test/assets/shizuku/shizuku.model.json"
+            }
+        ];
+        let customModels = [];
+        let isModelSwitching = false;
 
         // 检测是否在Electron环境中运行
         function isElectron() {
@@ -233,8 +423,240 @@
             return false;
         }
         
+        // 从localStorage加载模型列表
+        function loadModelList() {
+            try {
+                const savedModels = localStorage.getItem('live2d_custom_models');
+                if (savedModels) {
+                    customModels = JSON.parse(savedModels);
+                }
+                
+                const lastUsedUrl = localStorage.getItem('live2d_last_used_model');
+                if (lastUsedUrl) {
+                    currentModelUrl = lastUsedUrl;
+                } else {
+                    // 如果没有记录上次使用的模型，使用默认的第一个
+                    currentModelUrl = defaultModels[0].url;
+                }
+            } catch (error) {
+                console.error('加载模型列表时出错:', error);
+                customModels = [];
+                currentModelUrl = defaultModels[0].url;
+            }
+            selectedModelUrl = currentModelUrl;
+        }
+        
+        // 保存模型列表到localStorage
+        function saveModelList() {
+            try {
+                localStorage.setItem('live2d_custom_models', JSON.stringify(customModels));
+                localStorage.setItem('live2d_last_used_model', currentModelUrl);
+            } catch (error) {
+                console.error('保存模型列表时出错:', error);
+            }
+        }
+        
+        // 添加自定义模型
+        function addCustomModel(name, url) {
+            // 检查URL是否已存在
+            const isUrlExist = [...defaultModels, ...customModels].some(model => model.url === url);
+            if (isUrlExist) {
+                alert('此模型URL已存在于列表中');
+                return false;
+            }
+            
+            // 生成一个显示名称（如果未提供）
+            const displayName = name || `自定义模型 ${customModels.length + 1}`;
+            
+            customModels.push({
+                name: displayName,
+                url: url
+            });
+            
+            saveModelList();
+            return true;
+        }
+        
+        // 删除自定义模型
+        function deleteCustomModel(url) {
+            const index = customModels.findIndex(model => model.url === url);
+            if (index !== -1) {
+                customModels.splice(index, 1);
+                saveModelList();
+                
+                // 如果删除的是当前选中的模型，则重置为默认模型
+                if (selectedModelUrl === url) {
+                    selectedModelUrl = defaultModels[0].url;
+                }
+                
+                return true;
+            }
+            return false;
+        }
+        
+        // 更新模型选择器UI
+        function updateModelSelectorUI() {
+            const container = document.getElementById('model-list-container');
+            container.innerHTML = '';
+            
+            // 添加默认模型
+            defaultModels.forEach(model => {
+                const item = createModelItem(model, false);
+                container.appendChild(item);
+            });
+            
+            // 如果有自定义模型，添加一个分隔线
+            if (customModels.length > 0) {
+                const divider = document.createElement('div');
+                divider.style.borderBottom = '1px solid #e0e0e0';
+                divider.style.margin = '10px 0';
+                container.appendChild(divider);
+                
+                // 添加自定义模型
+                customModels.forEach(model => {
+                    const item = createModelItem(model, true);
+                    container.appendChild(item);
+                });
+            }
+        }
+        
+        // 创建模型列表项
+        function createModelItem(model, isCustom) {
+            const item = document.createElement('div');
+            item.className = 'model-item';
+            if (model.url === selectedModelUrl) {
+                item.classList.add('selected');
+            }
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'model-item-name';
+            nameSpan.textContent = model.name;
+            nameSpan.title = model.url;
+            item.appendChild(nameSpan);
+            
+            // 自定义模型可以删除
+            if (isCustom) {
+                const deleteBtn = document.createElement('span');
+                deleteBtn.className = 'model-item-delete';
+                deleteBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+                deleteBtn.title = '删除此模型';
+                deleteBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (confirm(`确定要删除模型 "${model.name}" 吗？`)) {
+                        deleteCustomModel(model.url);
+                        updateModelSelectorUI();
+                    }
+                };
+                item.appendChild(deleteBtn);
+            }
+            
+            // 点击选择模型
+            item.onclick = () => {
+                selectedModelUrl = model.url;
+                document.querySelectorAll('.model-item').forEach(el => el.classList.remove('selected'));
+                item.classList.add('selected');
+            };
+            
+            return item;
+        }
+        
+        // 显示模型选择器
+        function showModelSelector() {
+            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('model-selector').style.display = 'block';
+            updateModelSelectorUI();
+        }
+        
+        // 隐藏模型选择器
+        function hideModelSelector() {
+            document.getElementById('overlay').style.display = 'none';
+            document.getElementById('model-selector').style.display = 'none';
+        }
+        
+        // 应用模型选择
+        async function applyModelSelection() {
+            if (selectedModelUrl && selectedModelUrl !== currentModelUrl) {
+                hideModelSelector();
+                await switchModel(selectedModelUrl);
+            } else {
+                hideModelSelector();
+            }
+        }
+        
+        // 切换到新模型
+        async function switchModel(modelUrl) {
+            if (isModelSwitching) return;
+            
+            // 更新UI显示切换状态
+            isModelSwitching = true;
+            const modelName = getModelNameByUrl(modelUrl) || '未命名模型';
+            document.getElementById('model-switching-name').textContent = modelName;
+            document.getElementById('model-switching-indicator').style.display = 'block';
+            
+            try {
+                // 移除旧模型
+                if (model) {
+                    app.stage.removeChild(model);
+                    model = null;
+                }
+                
+                // 加载新模型
+                model = await PIXI.live2d.Live2DModel.from(modelUrl);
+                
+                // 设置模型
+                model.anchor.set(0.5, 0.5);
+                model.position.set(app.screen.width / 2, app.screen.height / 2);
+                model.scale.set(modelScale);
+                
+                // 初始化模型位置变量
+                modelX = app.screen.width / 2;
+                modelY = app.screen.height / 2;
+                
+                // 添加到舞台
+                app.stage.addChild(model);
+                
+                // 更新当前模型URL并保存
+                currentModelUrl = modelUrl;
+                saveModelList();
+                
+                // 重启基础动画
+                startBasicAnimations();
+                
+                // 隐藏加载状态
+                setTimeout(() => {
+                    document.getElementById('model-switching-indicator').style.display = 'none';
+                    isModelSwitching = false;
+                }, 500);
+            } catch (error) {
+                console.error('切换模型失败:', error);
+                alert(`无法加载模型: ${error.message}`);
+                
+                // 如果加载失败，尝试恢复到默认模型
+                if (modelUrl !== defaultModels[0].url) {
+                    selectedModelUrl = defaultModels[0].url;
+                    switchModel(defaultModels[0].url);
+                } else {
+                    // 如果默认模型也加载失败，显示错误信息
+                    document.getElementById('model-switching-indicator').style.display = 'none';
+                    document.getElementById('loading').style.display = 'block';
+                    document.getElementById('loading').innerHTML = '加载模型失败: ' + error.message;
+                    isModelSwitching = false;
+                }
+            }
+        }
+        
+        // 根据URL获取模型名称
+        function getModelNameByUrl(url) {
+            const allModels = [...defaultModels, ...customModels];
+            const model = allModels.find(m => m.url === url);
+            return model ? model.name : null;
+        }
+        
         async function init() {
             try {
+                // 加载模型列表
+                loadModelList();
+                
                 // 检测并设置Electron环境
                 if (isElectron()) {
                     document.body.classList.add('electron');
@@ -256,7 +678,7 @@
                 });
 
                 // 加载模型
-                model = await PIXI.live2d.Live2DModel.from('https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display/test/assets/shizuku/shizuku.model.json');
+                model = await PIXI.live2d.Live2DModel.from(currentModelUrl);
 
                 // 设置模型
                 model.anchor.set(0.5, 0.5);
@@ -275,6 +697,9 @@
                 // 初始化字幕容器
                 initSubtitleElement();
 
+                // 初始化模型交互（鼠标右键平移、滚轮缩放）
+                initModelInteraction();
+
                 // 启动基础动画（眨眼和呼吸）
                 startBasicAnimations();
 
@@ -283,11 +708,53 @@
 
                 // 设置窗口大小变化监听
                 window.addEventListener('resize', handleResize);
+                
+                // 初始化模型选择器事件
+                initModelSelector();
 
             } catch (error) {
                 console.error('加载失败:', error);
                 document.getElementById('loading').innerHTML = '加载失败: ' + error.message;
             }
+        }
+        
+        // 初始化模型选择器事件
+        function initModelSelector() {
+            // 关闭按钮
+            document.querySelector('.model-selector-close').addEventListener('click', hideModelSelector);
+            
+            // 点击遮罩关闭
+            document.getElementById('overlay').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    hideModelSelector();
+                }
+            });
+            
+            // 添加自定义模型
+            document.getElementById('add-custom-model').addEventListener('click', function() {
+                const urlInput = document.getElementById('custom-model-url');
+                const url = urlInput.value.trim();
+                
+                if (!url) {
+                    alert('请输入有效的模型URL');
+                    return;
+                }
+                
+                if (addCustomModel(null, url)) {
+                    urlInput.value = '';
+                    updateModelSelectorUI();
+                }
+            });
+            
+            // 应用选择
+            document.getElementById('apply-model-selection').addEventListener('click', applyModelSelection);
+            
+            // 回车添加URL
+            document.getElementById('custom-model-url').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    document.getElementById('add-custom-model').click();
+                }
+            });
         }
 
         // 处理窗口大小变化
@@ -295,10 +762,86 @@
             // 更新应用尺寸
             app.renderer.resize(window.innerWidth, window.innerHeight);
             
-            // 更新模型位置
+            // 更新模型位置，保持相对位置不变
             if (model) {
-                model.position.set(app.screen.width / 2, app.screen.height / 2);
+                // 计算中心点偏移量
+                const offsetX = modelX - app.screen.width / 2;
+                const offsetY = modelY - app.screen.height / 2;
+                
+                // 更新模型位置变量
+                modelX = app.screen.width / 2 + offsetX;
+                modelY = app.screen.height / 2 + offsetY;
+                
+                // 设置模型位置
+                model.position.set(modelX, modelY);
             }
+        }
+        
+        // 初始化模型交互
+        function initModelInteraction() {
+            const canvas = document.getElementById('canvas');
+            
+            // 禁止右键菜单
+            canvas.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+            });
+            
+            // 鼠标按下事件
+            canvas.addEventListener('mousedown', function(e) {
+                // 仅在按下右键时启用拖动
+                if (e.button === 2) {
+                    isDragging = true;
+                    dragStartX = e.clientX;
+                    dragStartY = e.clientY;
+                }
+            });
+            
+            // 鼠标移动事件
+            canvas.addEventListener('mousemove', function(e) {
+                if (isDragging && model) {
+                    // 计算鼠标移动距离
+                    const deltaX = e.clientX - dragStartX;
+                    const deltaY = e.clientY - dragStartY;
+                    
+                    // 更新起始位置
+                    dragStartX = e.clientX;
+                    dragStartY = e.clientY;
+                    
+                    // 更新模型位置
+                    modelX += deltaX;
+                    modelY += deltaY;
+                    model.position.set(modelX, modelY);
+                }
+            });
+            
+            // 鼠标松开事件
+            canvas.addEventListener('mouseup', function(e) {
+                if (e.button === 2) {
+                    isDragging = false;
+                }
+            });
+            
+            // 鼠标离开画布事件
+            canvas.addEventListener('mouseleave', function() {
+                isDragging = false;
+            });
+            
+            // 滚轮缩放事件
+            canvas.addEventListener('wheel', function(e) {
+                e.preventDefault(); // 阻止页面滚动
+                
+                if (model) {
+                    // 确定缩放方向和量
+                    const zoomFactor = e.deltaY > 0 ? 0.95 : 1.05;
+                    
+                    // 更新缩放值，并限制在合理范围内
+                    modelScale *= zoomFactor;
+                    modelScale = Math.max(0.1, Math.min(modelScale, 1.0)); // 限制缩放范围在0.1到1.0之间
+                    
+                    // 应用新的缩放值
+                    model.scale.set(modelScale);
+                }
+            });
         }
 
         // 启动基础动画（呼吸和眨眼）
@@ -319,7 +862,7 @@
                 }
                 
                 const scale = 1 + breathAmt;
-                model.scale.set(0.3 * scale, 0.3 * scale);
+                model.scale.set(modelScale * scale, modelScale * scale);
             }, 50);
 
             // 眨眼动画 - 随机间隔眨眼
@@ -904,6 +1447,17 @@
             const dragButton = document.getElementById('drag-handle');
             dragButton.title = '拖动窗口';
             addHoverEffect(dragButton, '拖动窗口');
+            
+            // 模型选择按钮
+            const modelButton = document.getElementById('model-handle');
+            modelButton.title = '选择模型';
+            addHoverEffect(modelButton, '选择模型');
+            
+            modelButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                showModelSelector();
+            });
             
             // 字幕按钮
             const subtitleButton = document.getElementById('subtitle-handle');
