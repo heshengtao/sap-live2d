@@ -1232,7 +1232,7 @@
                     // 优化口型动画算法 - 调整敏感度和响应曲线
                     const intensity = Math.min(average / 2.5, 1.0); // 提高敏感度
                     
-                    if (intensity > 0.06) { // 进一步降低阈值，使口型动画更敏感
+                    if (intensity > 0.001) { // 进一步降低阈值，使口型动画更敏感
                         // 使用非线性映射增强口型表现力
                         const mouthOpenY = Math.min(Math.pow(intensity, 0.8) * 2.2, 1.0);
                         setMouth(mouthOpenY);
