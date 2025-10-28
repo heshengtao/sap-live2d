@@ -1,2 +1,18 @@
 # sap-live2d
 Super Agent Party的live 2d扩展！This is a Live 2D extension for the Super Agent Party!
+
+---
+
+Only the original code developed in this repository (e.g., the two SDK files live2d.min.js and live2dcubismcore.min.js) is open-sourced under the AGPL license; however, all Live2D-related code, assets, models, and other materials must comply with Cubism’s relevant agreements.
+
+The official Cubism website is https://www.live2d.com/zh-CHS/
+
+Please visit that page to review the applicable agreements!
+
+--- 
+
+仅本仓库开发的原创代码部分(例如：live2d.min.js和live2dcubismcore.min.js这两个SDK文件)以AGPL协议开源，但是live2d相关的一切代码、资源、模型等物料请遵守 Cubism 的有关协议。 
+
+Cubism官网为 https://www.live2d.com/zh-CHS/ 
+
+请移步此处查看相关协议！
