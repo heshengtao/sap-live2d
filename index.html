@@ -395,12 +395,7 @@
         // 模型管理相关变量
         let currentModelUrl = '';
         let selectedModelUrl = '';
-        let defaultModels = [
-            {
-                name: "Shizuku (default)",
-                url: "https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display/test/assets/shizuku/shizuku.model.json"
-            }
-        ];
+        let defaultModels = [];
         let customModels = [];
         let isModelSwitching = false;
 
@@ -661,6 +656,15 @@
         
         async function init() {
             try {
+                // 加载默认模型列表
+                try {
+                const res = await fetch('models.json');
+                defaultModels = await res.json();
+                if (!Array.isArray(defaultModels)) throw new Error('models.json 格式错误');
+                } catch (err) {
+                console.error('models.json 加载失败，使用空列表', err);
+                defaultModels = [];
+                }
                 // 加载模型列表
                 loadModelList();
                 

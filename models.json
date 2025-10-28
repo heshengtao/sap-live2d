@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Shizuku (default)",
+    "url": "https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display/test/assets/shizuku/shizuku.model.json"
+  },
+  {
+    "name": "senko",
+    "url": "https://cdn.jsdelivr.net/gh/Eikanya/Live2d-model/Live2D/Senko_Normals/senko.model3.json"
+  },
+  {
+    "name": "haru_greeter_t03",
+    "url": "https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display/test/assets/haru/haru_greeter_t03.model3.json"
+  }
+]
