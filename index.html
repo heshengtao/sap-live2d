@@ -341,8 +341,9 @@
             <!-- 模型列表将通过JavaScript动态生成 -->
         </div>
         <div class="model-selector-footer">
+            <h4>Enter Custom model URL or Path</h4>
             <div class="custom-url-input">
-                <input type="text" id="custom-model-url" placeholder="Enter a custom model URL or Path">
+                <input type="text" id="custom-model-url" placeholder="URL or Path.eg: shizuku.model.json or shizuku.model3.json">
                 <button class="btn btn-secondary" id="add-custom-model">add</button>
             </div>
             <button class="btn btn-primary" id="apply-model-selection">Apply</button>
@@ -466,7 +467,13 @@
             }
             
             // 生成一个显示名称（如果未提供）
-            const displayName = name || `自定义模型 ${customModels.length + 1}`;
+            const displayName = name || (() => {
+                // 处理 Windows (\) 和 Unix (/) 路径
+                const fileName = url.split(/[\\/]/).pop();
+                // 移除 .model[数字].json 或 .model.json 后缀（不区分大小写）
+                return fileName.replace(/\.model(\d*)?\.json$/i, '');
+            })();
+
             
             customModels.push({
                 name: displayName,
