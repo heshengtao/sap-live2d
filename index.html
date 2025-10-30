@@ -24,16 +24,6 @@
             background: transparent !important;
             overflow: hidden;
         }
-        
-        .loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: black;
-            font-size: 18px;
-            text-align: center;
-        }
 
         /* 控制面板样式 */
         #control-panel {
@@ -290,7 +280,6 @@
     </style>
 </head>
 <body>
-    <div class="loading" id="loading">正在加载 Live2D 模型...</div>
     <canvas id="canvas"></canvas>
 
     <!-- 字幕容器 -->
@@ -334,19 +323,19 @@
     <!-- 模型选择对话框 -->
     <div id="model-selector">
         <div class="model-selector-header">
-            <h2>Select model</h2>
+            <h2>选择模型</h2>
             <div class="model-selector-close">×</div>
         </div>
         <div class="model-selector-body" id="model-list-container">
             <!-- 模型列表将通过JavaScript动态生成 -->
         </div>
         <div class="model-selector-footer">
-            <h4>Enter Custom model URL or Path</h4>
+            <h4>输入模型URL或者绝对路径</h4>
             <div class="custom-url-input">
-                <input type="text" id="custom-model-url" placeholder="URL or Path.eg: shizuku.model.json or shizuku.model3.json">
-                <button class="btn btn-secondary" id="add-custom-model">add</button>
+                <input type="text" id="custom-model-url" placeholder="URL或绝对路径，例如: shizuku.model.json or shizuku.model3.json">
+                <button class="btn btn-secondary" id="add-custom-model">添加</button>
             </div>
-            <button class="btn btn-primary" id="apply-model-selection">Apply</button>
+            <button class="btn btn-primary" id="apply-model-selection">应用</button>
         </div>
     </div>
 
@@ -640,8 +629,6 @@
                 } else {
                     // 如果默认模型也加载失败，显示错误信息
                     document.getElementById('model-switching-indicator').style.display = 'none';
-                    document.getElementById('loading').style.display = 'block';
-                    document.getElementById('loading').innerHTML = '加载模型失败: ' + error.message;
                     isModelSwitching = false;
                 }
             }
@@ -658,6 +645,23 @@
             try {
                 // 初始化控制面板交互
                 initControlPanel();
+                // 初始化字幕容器
+                initSubtitleElement();
+
+                // 初始化模型交互（鼠标右键平移、滚轮缩放）
+                initModelInteraction();
+
+                // 启动基础动画（眨眼和呼吸）
+                startBasicAnimations();
+
+                // 连接WebSocket
+                initWebSocket();
+
+                // 设置窗口大小变化监听
+                window.addEventListener('resize', handleResize);
+                
+                // 初始化模型选择器事件
+                initModelSelector();
                 // 加载默认模型列表
                 try {
                 const res = await fetch('models.json');
@@ -691,45 +695,10 @@
                 });
 
                 // 加载模型
-                try {
-                    model = await PIXI.live2d.Live2DModel.from(currentModelUrl);
-                } catch (error) {
-                    model = await PIXI.live2d.Live2DModel.from('https://cdn.jsdelivr.net/gh/letere-gzj/live2d-widget-v3@main/Resources/model/Hiyori/Hiyori.model3.json');
-                }
-                
-
-                // 设置模型
-                model.anchor.set(0.5, 0.5);
-                model.position.set(app.screen.width / 2, app.screen.height / 2);
-                model.scale.set(0.3);
-
-                // 添加到舞台
-                app.stage.addChild(model);
-
-                // 隐藏加载提示
-                document.getElementById('loading').style.display = 'none';
-
-                // 初始化字幕容器
-                initSubtitleElement();
-
-                // 初始化模型交互（鼠标右键平移、滚轮缩放）
-                initModelInteraction();
-
-                // 启动基础动画（眨眼和呼吸）
-                startBasicAnimations();
-
-                // 连接WebSocket
-                initWebSocket();
-
-                // 设置窗口大小变化监听
-                window.addEventListener('resize', handleResize);
-                
-                // 初始化模型选择器事件
-                initModelSelector();
+                switchModel(currentModelUrl);
 
             } catch (error) {
                 console.error('加载失败:', error);
-                document.getElementById('loading').innerHTML = '加载失败: ' + error.message;
             }
         }
         
