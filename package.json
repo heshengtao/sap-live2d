@@ -5,9 +5,11 @@
   "author": "heshengtao",
   "systemPrompt": "",
   "repository": "https://github.com/heshengtao/sap-live2d",
+  "backupRepository": "https://gitee.com/heshengtao/sap-live2d",
   "category": "Game",
   "transparent": true,
   "width": 400,       
   "height": 800     
 }
+
 
