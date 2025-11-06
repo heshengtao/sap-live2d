@@ -643,25 +643,6 @@
         
         async function init() {
             try {
-                // 初始化控制面板交互
-                initControlPanel();
-                // 初始化字幕容器
-                initSubtitleElement();
-
-                // 初始化模型交互（鼠标右键平移、滚轮缩放）
-                initModelInteraction();
-
-                // 启动基础动画（眨眼和呼吸）
-                startBasicAnimations();
-
-                // 连接WebSocket
-                initWebSocket();
-
-                // 设置窗口大小变化监听
-                window.addEventListener('resize', handleResize);
-                
-                // 初始化模型选择器事件
-                initModelSelector();
                 // 加载默认模型列表
                 try {
                 const res = await fetch('models.json');
@@ -696,6 +677,26 @@
 
                 // 加载模型
                 switchModel(currentModelUrl);
+
+                // 初始化控制面板交互
+                initControlPanel();
+                // 初始化字幕容器
+                initSubtitleElement();
+
+                // 初始化模型交互（鼠标右键平移、滚轮缩放）
+                initModelInteraction();
+
+                // 启动基础动画（眨眼和呼吸）
+                startBasicAnimations();
+
+                // 连接WebSocket
+                initWebSocket();
+
+                // 设置窗口大小变化监听
+                window.addEventListener('resize', handleResize);
+                
+                // 初始化模型选择器事件
+                initModelSelector();
 
             } catch (error) {
                 console.error('加载失败:', error);
