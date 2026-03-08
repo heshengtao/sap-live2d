@@ -1,0 +1,2566 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live2D</title>
+    <!-- 添加 Font Awesome 图标库 -->
+    <link rel="stylesheet" href="../../fontawesome/css/all.min.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: transparent !important;
+            font-family: Arial, sans-serif;
+        }
+        
+        body.electron {
+            background: transparent !important;
+            overflow: hidden;
+        }
+
+        body.web {
+            background: transparent !important;
+            overflow: hidden;
+        }
+
+        /* 控制面板样式 */
+        #control-panel {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 9999;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateX(20px);
+            transition: all 0.3s ease;
+            pointer-events: none;
+        }
+
+        /* 按钮通用样式 */
+        .control-button {
+            width: 28px;
+            height: 28px;
+            background: rgba(255,255,255,0.95);
+            border: 2px solid rgba(0,0,0,0.1);
+            border-radius: 50%;
+            color: #333;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transition: all 0.2s ease;
+            user-select: none;
+            pointer-events: auto;
+            backdrop-filter: blur(10px);
+        }
+        
+        /* 添加拖动按钮特殊样式 */
+        #drag-handle {
+            -webkit-app-region: drag; /* 这个属性允许在Electron中拖动窗口 */
+        }
+
+        .control-button:hover {
+            background: rgba(255,255,255,1);
+            transform: scale(1.1);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+        }
+
+        /* 提示框样式 */
+        #tooltip-container {
+            position: fixed;
+            z-index: 10000;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateX(-10px);
+            transition: all 0.3s ease;
+        }
+
+        #tooltip {
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            white-space: nowrap;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            backdrop-filter: blur(8px);
+        }
+
+        /* 字幕容器样式 */
+        #subtitle-container {
+            position: fixed;
+            bottom: 30%;
+            left: 50%;
+            width: auto;
+            max-width: 80%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border-radius: 8px;
+            font-size: 1.2em;
+            text-align: center;
+            backdrop-filter: blur(10px);
+            opacity: 0;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            z-index: 9998;
+            white-space: pre-wrap;
+            line-height: 1.5;
+            cursor: move;
+            user-select: none;
+            min-width: 100px;
+            max-width: 80%;
+            width: max-content;
+        }
+
+        /* 模型切换指示器样式 */
+        #model-switching-indicator {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            font-size: 16px;
+            z-index: 10000;
+            text-align: center;
+            backdrop-filter: blur(10px);
+            transition: opacity 0.3s ease;
+            display: none;
+        }
+
+        /* 模型选择对话框样式 */
+       #model-selector {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            max-width: 500px;
+            
+            /* --- 核心修改开始 --- */
+            max-height: 85vh;        /* 限制最大高度为屏幕高度的 85%，防止溢出屏幕 */
+            display: flex;           /* 启用 Flex 布局 */
+            flex-direction: column;  /* 垂直排列子元素 */
+            /* --- 核心修改结束 --- */
+            
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            z-index: 10001;
+            padding: 20px;
+            display: none; /* 默认隐藏，JS控制显示时会覆盖此属性，注意 flex 布局需配合 display:flex */
+            backdrop-filter: blur(10px);
+        }
+        
+
+        #model-selector[style*="display: block"] {
+            display: flex !important;
+        }
+
+        .model-selector-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 10px;
+            
+            /* --- 新增：防止头部被压缩 --- */
+            flex-shrink: 0; 
+        }
+
+        /* Webkit浏览器(Chrome/Edge)滚动条美化 */
+        .model-selector-body::-webkit-scrollbar {
+            width: 6px;
+        }
+        .model-selector-body::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .model-selector-body::-webkit-scrollbar-thumb {
+            background-color: rgba(0,0,0,0.2);
+            border-radius: 3px;
+        }
+
+
+        .model-selector-header h2 {
+            margin: 0;
+            font-size: 18px;
+            color: #333;
+        }
+
+        .model-selector-close {
+            cursor: pointer;
+            font-size: 20px;
+            color: #555;
+        }
+
+        .model-selector-body {
+            /* --- 核心修改：移除固定高度，改为弹性伸缩 --- */
+            /* max-height: 300px;  <-- 删除这行 */
+            flex: 1;               /* 自动占据剩余空间 */
+            overflow-y: auto;      /* 内容过多时显示滚动条 */
+            min-height: 100px;     /* 给一个最小高度，防止太矮 */
+            /* -------------------------------------- */
+            
+            margin-bottom: 15px;
+            
+            /* 滚动条样式优化（可选） */
+            scrollbar-width: thin;
+            scrollbar-color: #ccc transparent;
+        }
+
+        .model-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 10px;
+            border-radius: 5px;
+            margin-bottom: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .model-item:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+
+        .model-item.selected {
+            background-color: rgba(0, 123, 255, 0.1);
+            border-left: 3px solid #007bff;
+        }
+
+        .model-item-name {
+            flex-grow: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .model-item-delete {
+            color: #ff4d4f;
+            margin-left: 10px;
+            visibility: hidden;
+        }
+
+        .model-item:hover .model-item-delete {
+            visibility: visible;
+        }
+
+        .model-selector-footer {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            
+            /* --- 新增：防止底部被压缩 --- */
+            flex-shrink: 0;
+        }
+
+        .custom-url-input {
+            display: flex;
+            gap: 10px;
+            /* 允许在极窄屏幕下换行，防止布局彻底崩坏 (可选) */
+            flex-wrap: wrap; 
+        }
+
+        .custom-url-input input {
+            /* flex: 1 让输入框占据剩余空间 */
+            flex: 1; 
+            padding: 8px 12px;
+            border: 1px solid #d9d9d9;
+            border-radius: 4px;
+            font-size: 14px;
+            
+            /* 关键点1: 设置最小宽度，防止输入框被压缩都没了 */
+            min-width: 120px; 
+        }
+
+        /* 针对该区域内的按钮特别设置 */
+        .custom-url-input .btn {
+            /* 关键点2: 禁止按钮被压缩 */
+            flex-shrink: 0; 
+            
+            /* 关键点3: 禁止按钮文字换行 */
+            white-space: nowrap; 
+            
+            /* 确保高度与输入框对齐 */
+            height: auto; 
+            display: flex;
+            align-items: center;
+        }
+
+        .custom-url-input input {
+            flex-grow: 1;
+            padding: 8px 12px;
+            border: 1px solid #d9d9d9;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .btn {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background-color: #1890ff;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #40a9ff;
+        }
+
+        .btn-secondary {
+            background-color: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background-color: #e0e0e0;
+        }
+
+        /* 遮罩层 */
+        #overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 10000;
+            display: none;
+        }
+        /* [紧凑版] 版权弹窗样式 */
+        #license-modal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 85%;
+            max-width: 380px;
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+            z-index: 10002;
+            padding: 15px;
+            backdrop-filter: blur(10px);
+            font-family: sans-serif;
+            font-size: 12px;
+            animation: fadeIn 0.3s ease;
+            text-align: left; /* 确保表格左对齐 */
+        }
+
+        .license-header h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 8px;
+            text-align: center;
+        }
+
+        .license-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 10px;
+        }
+
+        .license-table th {
+            background: #f5f5f5;
+            color: #666;
+            padding: 6px;
+            text-align: left;
+            font-weight: bold;
+            font-size: 11px;
+        }
+
+        .license-table td {
+            padding: 6px;
+            border-bottom: 1px solid #f0f0f0;
+            color: #333;
+            vertical-align: middle;
+            line-height: 1.3;
+        }
+
+        .license-table .sub-text {
+            font-size: 10px;
+            color: #999;
+            margin-top: 2px;
+        }
+
+        /* 协议链接样式 */
+        .license-table a {
+            color: #1890ff;
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 11px;
+            display: inline-block;
+            padding: 2px 6px;
+            background: #e6f7ff;
+            border-radius: 4px;
+        }
+
+        .license-table a:hover {
+            background: #1890ff;
+            color: #fff;
+        }
+
+        /* [新增] 必读链接样式 */
+        .license-footer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 10px;
+        }
+
+        .must-read-link {
+            font-size: 12px;
+            color: #ff4d4f; /* 警示红 */
+            font-weight: bold;
+            text-decoration: none;
+            margin-bottom: 8px; /* 与按钮的间距 */
+            padding: 4px 8px;
+            border: 1px dashed rgba(255, 77, 79, 0.3);
+            border-radius: 4px;
+            background-color: #fff1f0;
+            transition: all 0.2s;
+        }
+
+        .must-read-link:hover {
+            background-color: #ff4d4f;
+            color: white;
+            border-style: solid;
+        }
+
+        /* 确认按钮样式 */
+        #license-confirm-btn {
+            width: 100%;
+            padding: 8px 0;
+            font-size: 12px;
+            border-radius: 4px;
+            border: none;
+            background-color: #1890ff;
+            color: white;
+            cursor: pointer;
+        }
+
+        #license-confirm-btn:hover {
+            background-color: #40a9ff;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <!-- 加载失败提示框 -->
+    <div id="error-notice" style="display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(220, 53, 69, 0.95); color: white; padding: 12px 20px; border-radius: 8px; z-index: 10005; text-align: center; backdrop-filter: blur(10px); box-shadow: 0 4px 15px rgba(0,0,0,0.3); font-size: 14px; min-width: 300px; animation: fadeInDown 0.5s ease;">
+        <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
+            <i class="fas fa-exclamation-triangle"></i>
+            <div id="error-message">默认模型 CDN 连接失败 / Default model CDN failed</div>
+            <i class="fas fa-times" style="cursor: pointer; margin-left: 10px;" onclick="this.parentElement.parentElement.style.display='none'"></i>
+        </div>
+        <div style="font-size: 12px; margin-top: 6px; opacity: 0.9; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 6px;">
+            您可以点击右侧人物图标手动添加本地 model.json 路径<br>
+            You can still add local model.json paths via the user icon.
+        </div>
+    </div>
+
+    <style>
+    @keyframes fadeInDown {
+        from { opacity: 0; transform: translate(-50%, -20px); }
+        to { opacity: 1; transform: translate(-50%, 0); }
+    }
+    </style>
+    <!-- [精简版+必读提醒] 版权声明弹窗 -->
+    <div id="license-modal" style="display: none;">
+        <div class="license-header">
+            <h3>License / 版权声明</h3>
+        </div>
+        <div class="license-body">
+            <table class="license-table">
+                <thead>
+                    <tr>
+                        <th>Resource / 资源</th>
+                        <th>Copyright / 版权</th>
+                        <th>Link / 协议</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>
+                            <strong>Cubism SDK</strong>
+                            <div class="sub-text">Web Framework</div>
+                        </td>
+                        <td>© Live2D Inc.</td>
+                        <td>
+                            <a href="https://www.live2d.com/download/cubism-sdk/download-web/" target="_blank">
+                                License
+                            </a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <strong>Hiyori Model</strong>
+                            <div class="sub-text">Default Avatar</div>
+                        </td>
+                        <td>
+                            Illust © Kani Biimu<br>
+                            © Live2D Inc.
+                        </td>
+                        <td>
+                            <a href="https://www.live2d.com/eula/live2d-free-material-license-agreement_jp.html" target="_blank">
+                                License
+                            </a>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="license-footer">
+            <!-- [新增] 必读链接 -->
+            <a href="https://github.com/heshengtao/sap-live2d" target="_blank" class="must-read-link">
+                ⚠️ 使用之前必读 / Must-read before use
+            </a>
+            
+            <button id="license-confirm-btn" class="btn btn-primary">
+                OK / 确认
+            </button>
+        </div>
+    </div>
+
+    <!-- 字幕容器 -->
+    <div id="subtitle-container"></div>
+
+    <!-- 控制面板 -->
+    <div id="control-panel">
+        <!-- 拖动按钮 -->
+        <div id="drag-handle" class="control-button">
+            <i class="fas fa-arrows-alt"></i>
+        </div>
+        <div id="lock-handle" class="control-button">
+            <i class="fas fa-lock-open"></i>
+        </div>
+        <!-- 模型选择按钮 -->
+        <div id="model-handle" class="control-button">
+            <i class="fas fa-user-circle"></i>
+        </div>
+        <!-- [新增] 注入提示词按钮 -->
+        <div id="prompt-handle" class="control-button">
+            <i class="fas fa-magic"></i>
+        </div>
+        <!-- 字幕开关 -->
+        <div id="subtitle-handle" class="control-button">
+            <i class="fas fa-closed-captioning"></i>
+        </div>
+        <div id="info-handle" class="control-button">
+            <i class="fas fa-info"></i>
+        </div>
+        <!-- 刷新按钮 -->
+        <div id="refresh-handle" class="control-button">
+            <i class="fas fa-redo-alt"></i>
+        </div>
+        <!-- 关闭按钮 -->
+        <div id="close-handle" class="control-button">
+            <i class="fas fa-times"></i>
+        </div>
+    </div>
+
+    <!-- 模型切换指示器 -->
+    <div id="model-switching-indicator">
+        <div>正在切换模型...</div>
+        <div id="model-switching-name" style="margin-top: 10px; font-size: 14px;"></div>
+    </div>
+
+    <!-- 工具提示容器 -->
+    <div id="tooltip-container">
+        <div id="tooltip"></div>
+    </div>
+
+    <!-- 模型选择对话框 -->
+    <div id="model-selector">
+        <div class="model-selector-header">
+            <h2>选择模型/Choose model</h2>
+            <div class="model-selector-close">×</div>
+        </div>
+        <div class="model-selector-body" id="model-list-container">
+            <!-- 模型列表将通过JavaScript动态生成 -->
+        </div>
+        <div class="model-selector-footer">
+            <h4 style="margin: 0px;">输入模型URL或者model.json绝对路径<br>Enter the model URL or model.json absolute path</h4>
+            <div class="custom-url-input">
+                <input type="text" id="custom-model-url" placeholder="x.model.json or x.model3.json">
+                <button class="btn btn-secondary" id="add-custom-model" style="min-width: min-content;">添加/Add</button>
+            </div>
+            <button class="btn btn-primary" id="apply-model-selection">应用/Apply</button>
+        </div>
+    </div>
+
+    <!-- 遮罩层 -->
+    <div id="overlay"></div>
+
+    <!-- 加载必要的脚本 -->
+    <script src="pixi.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/dylanNew/live2d/webgl/Live2D/lib/live2d.min.js"></script>
+    <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+    <script src="index.min.js"></script>
+
+    <script>
+        // 暴露 PIXI 到全局
+        window.PIXI = PIXI;
+        
+        let app;
+        let model;
+        let wsConnected = false;
+        let ttsWebSocket = null;
+        let mainWsConnected = false;
+        let mainWebSocket = null;
+        let currentAudioContext = null;
+        let isSubtitleEnabled = true;
+        let isDraggingSubtitle = false;
+        let subtitleOffsetX = 0;
+        let subtitleOffsetY = 0;
+        let currentSubtitleChunkIndex = -1;
+        let subtitleTimeout = null;
+        let audioAnalyzer = null;
+        let audioGain = null;
+
+        // 模型交互相关变量
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let modelX = 0;
+        let modelY = 0;
+        let modelScale = 0.2;  // 初始缩放值
+        
+        // --- OMNI & 字幕控制变量 ---
+        let fullTargetText = "";          // 记录当前对话收到的所有文本
+        let currentVisibleCount = 0;      // 当前已显示的字符数
+        let displayStartIndex = 0;        // 锁定当前显示的起始位置
+        let typewriterTimer = null;       // 打字机计时器
+        let isAudioStreaming = false;     // 是否正在推流
+        let isOmniMode = false;           // 是否处于 Omni 模式
+        let omniNextStartTime = 0;        // 预估的音频流结束时间点
+
+        // --- 字幕常量 ---
+        const MAX_WINDOW_SIZE = 45;       // 一屏最多显示的字符数
+        const OVERLAP_SIZE = 20;          // 翻页时保留的重叠字符数
+        const SAFE_PUNC_LIST = /[，。！？；：、“”（）《》,.!?;:()]/;
+
+        // 存储正在进行的动画
+        const chunkAnimations = new Map();
+        
+        // 用于呼吸和眨眼的计时器
+        let breathingTimer = null;
+        let blinkingTimer = null;
+        
+        // 模型管理相关变量
+        let currentModelUrl = '';
+        let selectedModelUrl = '';
+        let defaultModels = [];
+        let customModels = [];
+        let isModelSwitching = false;
+
+        // 检测是否在Electron环境中运行
+        function isElectron() {
+            // 渲染进程
+            if (typeof window !== 'undefined' && typeof window.process === 'object' && 
+                window.process.type === 'renderer') {
+                return true;
+            }
+            // 主进程
+            if (typeof process !== 'undefined' && typeof process.versions === 'object' && 
+                !!process.versions.electron) {
+                return true;
+            }
+            // 检测 navigator.userAgent (渲染进程)
+            if (typeof navigator === 'object' && typeof navigator.userAgent === 'string' && 
+                navigator.userAgent.indexOf('Electron') >= 0) {
+                return true;
+            }
+            return false;
+        }
+        
+        // 从localStorage加载模型列表
+        function loadModelList() {
+            try {
+                const savedModels = localStorage.getItem('live2d_custom_models');
+                if (savedModels) {
+                    customModels = JSON.parse(savedModels);
+                }
+                
+                const lastUsedUrl = localStorage.getItem('live2d_last_used_model');
+                if (lastUsedUrl) {
+                    currentModelUrl = lastUsedUrl;
+                } else {
+                    // 如果没有记录上次使用的模型，使用默认的第一个
+                    currentModelUrl = defaultModels[0].url;
+                }
+            } catch (error) {
+                console.error('加载模型列表时出错:', error);
+                customModels = [];
+                currentModelUrl = defaultModels[0].url;
+            }
+            selectedModelUrl = currentModelUrl;
+        }
+        
+        // 保存模型列表到localStorage
+        function saveModelList() {
+            try {
+                localStorage.setItem('live2d_custom_models', JSON.stringify(customModels));
+                localStorage.setItem('live2d_last_used_model', currentModelUrl);
+            } catch (error) {
+                console.error('保存模型列表时出错:', error);
+            }
+        }
+        
+        // 添加自定义模型
+        function addCustomModel(name, url) {
+            // 检查URL是否已存在
+            const isUrlExist = [...defaultModels, ...customModels].some(model => model.url === url);
+            if (isUrlExist) {
+                return false;
+            }
+            
+            // 生成一个显示名称（如果未提供）
+            const displayName = name || (() => {
+                // 处理 Windows (\) 和 Unix (/) 路径
+                const fileName = url.split(/[\\/]/).pop();
+                // 移除 .model[数字].json 或 .model.json 后缀（不区分大小写）
+                return fileName.replace(/\.model(\d*)?\.json$/i, '');
+            })();
+
+            
+            customModels.push({
+                name: displayName,
+                url: url
+            });
+            
+            saveModelList();
+            return true;
+        }
+        
+        // 删除自定义模型
+        function deleteCustomModel(url) {
+            const index = customModels.findIndex(model => model.url === url);
+            if (index !== -1) {
+                customModels.splice(index, 1);
+                saveModelList();
+                
+                // 如果删除的是当前选中的模型，则重置为默认模型
+                if (selectedModelUrl === url) {
+                    selectedModelUrl = defaultModels[0].url;
+                }
+                
+                return true;
+            }
+            return false;
+        }
+        
+        // 更新模型选择器UI
+        function updateModelSelectorUI() {
+            const container = document.getElementById('model-list-container');
+            container.innerHTML = '';
+            
+            // 添加默认模型
+            defaultModels.forEach(model => {
+                const item = createModelItem(model, false);
+                container.appendChild(item);
+            });
+            
+            // 如果有自定义模型，添加一个分隔线
+            if (customModels.length > 0) {
+                const divider = document.createElement('div');
+                divider.style.borderBottom = '1px solid #e0e0e0';
+                divider.style.margin = '10px 0';
+                container.appendChild(divider);
+                
+                // 添加自定义模型
+                customModels.forEach(model => {
+                    const item = createModelItem(model, true);
+                    container.appendChild(item);
+                });
+            }
+        }
+        
+        // 创建模型列表项
+        function createModelItem(model, isCustom) {
+            const item = document.createElement('div');
+            item.className = 'model-item';
+            if (model.url === selectedModelUrl) {
+                item.classList.add('selected');
+            }
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'model-item-name';
+            nameSpan.textContent = model.name;
+            nameSpan.title = model.url;
+            item.appendChild(nameSpan);
+            
+            // 自定义模型可以删除
+            if (isCustom) {
+                const deleteBtn = document.createElement('span');
+                deleteBtn.className = 'model-item-delete';
+                deleteBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+                deleteBtn.title = '删除此模型';
+                deleteBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (confirm(`确定要删除模型 "${model.name}" 吗？`)) {
+                        deleteCustomModel(model.url);
+                        updateModelSelectorUI();
+                    }
+                };
+                item.appendChild(deleteBtn);
+            }
+            
+            // 点击选择模型
+            item.onclick = () => {
+                selectedModelUrl = model.url;
+                document.querySelectorAll('.model-item').forEach(el => el.classList.remove('selected'));
+                item.classList.add('selected');
+            };
+            
+            return item;
+        }
+        
+        // 显示模型选择器
+        function showModelSelector() {
+            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('model-selector').style.display = 'block';
+            updateModelSelectorUI();
+        }
+        
+        // 隐藏模型选择器
+        function hideModelSelector() {
+            document.getElementById('overlay').style.display = 'none';
+            document.getElementById('model-selector').style.display = 'none';
+        }
+        
+        // 应用模型选择
+        async function applyModelSelection() {
+            if (selectedModelUrl && selectedModelUrl !== currentModelUrl) {
+                hideModelSelector();
+                await switchModel(selectedModelUrl);
+            } else {
+                hideModelSelector();
+            }
+        }
+        
+        function showLicenseModal() {
+            const modal = document.getElementById('license-modal');
+            const overlay = document.getElementById('overlay');
+            
+            if (modal && overlay) {
+                modal.style.display = 'block';
+                overlay.style.display = 'block';
+                
+                // 点击确认按钮关闭
+                const confirmBtn = document.getElementById('license-confirm-btn');
+                confirmBtn.onclick = hideLicenseModal;
+                
+                // 点击遮罩关闭 (如果希望强制阅读，可以注释掉下面这行)
+                // overlay.onclick = hideLicenseModal; 
+            }
+        }
+
+        function hideLicenseModal() {
+            const modal = document.getElementById('license-modal');
+            const overlay = document.getElementById('overlay');
+            if (modal) modal.style.display = 'none';
+            if (overlay) overlay.style.display = 'none';
+        }
+
+        // 切换到新模型
+        const FINAL_FALLBACK_URL = 'https://cdn.jsdelivr.net/gh/letere-gzj/live2d-widget-v3@main/Resources/model/Hiyori/Hiyori.model3.json';
+
+        // 切换到新模型
+        async function switchModel(modelUrl) {
+            // 如果已经在切换中，且不是兜底尝试，则返回
+            if (isModelSwitching && modelUrl !== FINAL_FALLBACK_URL) return;
+            
+            // 隐藏之前的错误提示
+            document.getElementById('error-notice').style.display = 'none';
+
+            isModelSwitching = true;
+            const modelName = getModelNameByUrl(modelUrl) || (modelUrl === FINAL_FALLBACK_URL ? "兜底模型(Hiyori)" : "未知模型");
+            document.getElementById('model-switching-name').textContent = modelName;
+            document.getElementById('model-switching-indicator').style.display = 'block';
+            
+            try {
+                // 移除旧模型
+                if (model) {
+                    app.stage.removeChild(model);
+                    model = null;
+                }
+                
+                // 加载模型
+                model = await PIXI.live2d.Live2DModel.from(modelUrl);
+                
+                // 配置模型
+                model.anchor.set(0.5, 0.5);
+                model.position.set(app.screen.width / 2, app.screen.height / 2);
+                model.scale.set(modelScale);
+                modelX = app.screen.width / 2;
+                modelY = app.screen.height / 2;
+                
+                app.stage.addChild(model);
+                currentModelUrl = modelUrl;
+                saveModelList();
+                startBasicAnimations();
+                
+                // 成功加载，关闭指示器
+                setTimeout(() => {
+                    document.getElementById('model-switching-indicator').style.display = 'none';
+                    isModelSwitching = false;
+                }, 500);
+
+            } catch (error) {
+                console.error(`模型加载失败 (${modelUrl}):`, error);
+
+                // --- 二次尝试兜底逻辑 ---
+                if (modelUrl !== FINAL_FALLBACK_URL) {
+                    console.warn("主模型加载失败，正在尝试终极兜底模型...");
+                    isModelSwitching = false; // 重置状态以允许再次进入
+                    return switchModel(FINAL_FALLBACK_URL); 
+                } 
+
+                // --- 如果连兜底模型也失败了，显示报错 ---
+                document.getElementById('model-switching-indicator').style.display = 'none';
+                isModelSwitching = false;
+                
+                const errorNotice = document.getElementById('error-notice');
+                errorNotice.style.display = 'block';
+                // 15秒后消失
+                setTimeout(() => errorNotice.style.display = 'none', 15000);
+            }
+        }
+        // 根据URL获取模型名称
+        function getModelNameByUrl(url) {
+            const allModels = [...defaultModels, ...customModels];
+            const model = allModels.find(m => m.url === url);
+            return model ? model.name : null;
+        }
+        
+        // [新增] 获取当前模型支持的所有表情和动作名称
+        function getModelCapabilities() {
+            if (!model || !model.internalModel) return { expressions: [], motions: [] };
+
+            const expressions = [];
+            const motions = [];
+
+            // 1. 获取表情 (Expressions)
+            // Cubism 4 / 3
+            if (model.internalModel.settings && model.internalModel.settings.expressions) {
+                model.internalModel.settings.expressions.forEach(exp => {
+                    if (exp.Name) expressions.push(exp.Name);
+                    else if (exp.name) expressions.push(exp.name);
+                });
+            } 
+            // Cubism 2 或其他变体 (有些库将定义放在 motionManager 中)
+            else if (model.internalModel.motionManager && 
+                    model.internalModel.motionManager.expressionManager && 
+                    model.internalModel.motionManager.expressionManager.definitions) {
+                model.internalModel.motionManager.expressionManager.definitions.forEach(def => {
+                    if (def.name) expressions.push(def.name);
+                });
+            }
+
+            // 2. 获取动作 (Motions)
+            // Live2D 动作通常按组(Group)分类，如 "Idle", "TapBody"
+            if (model.internalModel.settings && model.internalModel.settings.motions) {
+                const motionGroups = model.internalModel.settings.motions;
+                // motionGroups 是一个对象，键是组名，值是列表
+                Object.keys(motionGroups).forEach(groupName => {
+                    // 这里我们直接把组名作为动作名，或者组名_索引
+                    // 为了简化AI理解，通常我们只暴露组名（触发该组随机一个）
+                    // 或者如果组内有别名，使用文件别名
+                    motions.push(groupName);
+                });
+            }
+
+            // 去重
+            return {
+                expressions: [...new Set(expressions)],
+                motions: [...new Set(motions)]
+            };
+        }
+
+        // [新增] 生成并发送系统提示词
+        function updateSystemPromptWithModelInfo() {
+            if (!model) {
+                return;
+            }
+
+            const caps = getModelCapabilities();
+            const allTags = [
+                ...caps.expressions.map(e => `<${e}>`),
+                ...caps.motions.map(m => `<${m}>`)
+            ];
+
+            if (allTags.length === 0) {
+                return;
+            }
+
+            const tagString = allTags.join(' ');
+            
+            // 构建提示词模板
+            const promptText = `\n\n你可以使用以下表情和动作：${tagString}\n\n你可以在句子开头插入表情符号以驱动人物的当前表情，注意！你需要将表情符号放到句子的开头，才能在说这句话的时候同步做表情，例如：<${caps.expressions[0] || 'happy'}>你好哇。<${caps.motions[0] || 'wave'}>哇！\n\n一定要把表情符号跟要做表情的句子放在同一行，如果表情符号和要做表情的句子中间有换行符，表情也将不会生效，例如：\n\n<${caps.expressions[0] || 'happy'}>\n我好开心。\n\n此时，表情符号将不会生效。`;
+
+            console.log("发送提示词更新:", promptText);
+
+            // 调用现有的发送函数
+            if (mainWsConnected && mainWebSocket) {
+                sendToMainApp('set_system_prompt', { text: promptText });
+                
+                const btn = document.getElementById('prompt-handle');
+                const originalColor = btn.style.color;
+                btn.style.color = '#28a745'; // 变绿
+                setTimeout(() => btn.style.color = originalColor, 1000);
+                
+            } else {
+            }
+        }
+
+        async function init() {
+            try {
+                // 加载默认模型列表
+                try {
+                const res = await fetch('models.json');
+                defaultModels = await res.json();
+                if (!Array.isArray(defaultModels)) throw new Error('models.json 格式错误');
+                } catch (err) {
+                console.error('models.json 加载失败，使用空列表', err);
+                defaultModels = [];
+                document.getElementById('error-notice').style.display = 'block';
+                }
+                // 加载模型列表
+                loadModelList();
+                
+                // 检测并设置Electron环境
+                if (isElectron()) {
+                    document.body.classList.add('electron');
+                    console.log('Running in Electron environment');
+                } else {
+                    document.body.classList.add('web');
+                    console.log('Running in web environment');
+                }
+                
+                // 创建 PIXI 应用
+                app = new PIXI.Application({
+                    view: document.getElementById('canvas'),
+                    width: window.innerWidth,
+                    height: window.innerHeight,
+                    backgroundColor: 0x00000000,
+                    backgroundAlpha: 0,
+                    transparent: true,
+                    antialias: true,
+                });
+
+                // 加载模型
+                switchModel(currentModelUrl);
+
+                // 初始化控制面板交互
+                initControlPanel();
+
+                setTimeout(() => {
+                    showLicenseModal();
+                }, 500);
+
+                // 初始化字幕容器
+                initSubtitleElement();
+
+                // 初始化模型交互（鼠标右键平移、滚轮缩放）
+                initModelInteraction();
+
+                // 启动基础动画（眨眼和呼吸）
+                startBasicAnimations();
+
+                // 连接主应用WebSocket
+                initMainWebSocket();
+
+                // 连接WebSocket
+                initWebSocket();
+
+                // 设置窗口大小变化监听
+                window.addEventListener('resize', handleResize);
+                
+                // 初始化模型选择器事件
+                initModelSelector();
+
+            } catch (error) {
+                console.error('加载失败:', error);
+            }
+        }
+        
+        // [新增] 健壮的 URL 清洗函数
+        function normalizeModelUrl(input) {
+            if (!input) return '';
+
+            // 1. 去除首尾空白字符
+            let url = input.trim();
+
+            // 2. 去除首尾可能存在的引号 (支持 "URL", 'URL', “URL” 等)
+            // 匹配常规引号和中文引号
+            url = url.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '');
+
+            // 3. 再次去除清洗引号后可能暴露出的空白
+            url = url.trim();
+
+            // 4. 将 Windows 风格的反斜杠 \ 转换为 Web 风格的正斜杠 /
+            url = url.replace(/\\/g, '/');
+            
+            // 5. [可选] 如果是本地盘符开头 (如 C:/...) 且没有协议头，尝试添加 file:///
+            // 注意：这一步取决于你的具体环境，如果是纯 Web 环境可能不需要，Electron 环境下可能需要
+            if (/^[a-zA-Z]:\//.test(url)) {
+                url = 'file:///' + url;
+            }
+
+            return url;
+        }
+
+        // [新增] 简单的格式验证
+        function isValidModelExtension(url) {
+            // 检查是否以 .json 结尾（忽略大小写）
+            // 通常 Live2D 模型文件是 .model.json 或 .model3.json
+            return /\.json$/i.test(url);
+        }
+
+        // 初始化模型选择器事件
+        function initModelSelector() {
+            // 关闭按钮
+            document.querySelector('.model-selector-close').addEventListener('click', hideModelSelector);
+            
+            // 点击遮罩关闭
+            document.getElementById('overlay').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    hideModelSelector();
+                }
+            });
+            
+            // --- [修改开始] 优化添加模型的逻辑 ---
+            const handleAddModel = () => {
+                const urlInput = document.getElementById('custom-model-url');
+                const rawInput = urlInput.value;
+                
+                // 1. 清洗输入
+                const cleanUrl = normalizeModelUrl(rawInput);
+                
+                // 2. 空检查
+                if (!cleanUrl) {
+                    alert('请输入模型的 URL 或路径');
+                    return;
+                }
+
+                // 3. 格式检查 (可选，防止输入非 json 文件)
+                if (!isValidModelExtension(cleanUrl)) {
+                    if (!confirm('该链接似乎不是 .json 结尾的模型文件，确定要添加吗？')) {
+                        return;
+                    }
+                }
+                
+                // 4. 尝试添加
+                if (addCustomModel(null, cleanUrl)) {
+                    urlInput.value = ''; // 清空输入框
+                    updateModelSelectorUI(); // 刷新列表
+                    
+                    // 可选：添加成功后给个小提示
+                    // alert('添加成功！'); 
+                } else {
+                    alert('该模型已存在列表中，请勿重复添加。');
+                }
+            };
+
+            // 点击添加按钮
+            document.getElementById('add-custom-model').addEventListener('click', handleAddModel);
+            
+            // 回车键触发
+            document.getElementById('custom-model-url').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    handleAddModel();
+                }
+            });
+            // --- [修改结束] ---
+            
+            // 应用选择
+            document.getElementById('apply-model-selection').addEventListener('click', applyModelSelection);
+        }
+
+        // 处理窗口大小变化
+        function handleResize() {
+            // 更新应用尺寸
+            app.renderer.resize(window.innerWidth, window.innerHeight);
+            
+            // 更新模型位置，保持相对位置不变
+            if (model) {
+                // 计算中心点偏移量
+                const offsetX = modelX - app.screen.width / 2;
+                const offsetY = modelY - app.screen.height / 2;
+                
+                // 更新模型位置变量
+                modelX = app.screen.width / 2 + offsetX;
+                modelY = app.screen.height / 2 + offsetY;
+                
+                // 设置模型位置
+                model.position.set(modelX, modelY);
+            }
+        }
+        
+        // 初始化模型交互
+        function initModelInteraction() {
+            const canvas = document.getElementById('canvas');
+            
+            // 禁止右键菜单
+            canvas.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+            });
+            
+            // 鼠标按下事件
+            canvas.addEventListener('mousedown', function(e) {
+                // 仅在按下右键时启用拖动
+                if (e.button === 2) {
+                    isDragging = true;
+                    dragStartX = e.clientX;
+                    dragStartY = e.clientY;
+                }
+            });
+            
+            // 鼠标移动事件
+            canvas.addEventListener('mousemove', function(e) {
+                if (isDragging && model) {
+                    // 计算鼠标移动距离
+                    const deltaX = e.clientX - dragStartX;
+                    const deltaY = e.clientY - dragStartY;
+                    
+                    // 更新起始位置
+                    dragStartX = e.clientX;
+                    dragStartY = e.clientY;
+                    
+                    // 更新模型位置
+                    modelX += deltaX;
+                    modelY += deltaY;
+                    model.position.set(modelX, modelY);
+                }
+            });
+            
+            // 鼠标松开事件
+            canvas.addEventListener('mouseup', function(e) {
+                if (e.button === 2) {
+                    isDragging = false;
+                }
+            });
+            
+            // 滚轮缩放事件
+            canvas.addEventListener('wheel', function(e) {
+                e.preventDefault(); // 阻止页面滚动
+                
+                if (model) {
+                    // 确定缩放方向和量
+                    const zoomFactor = e.deltaY > 0 ? 0.95 : 1.05;
+                    
+                    // 更新缩放值，并限制在合理范围内
+                    modelScale *= zoomFactor;
+                    modelScale = Math.max(0.1, Math.min(modelScale, 1.0)); // 限制缩放范围在0.1到1.0之间
+                    
+                    // 应用新的缩放值
+                    model.scale.set(modelScale);
+                }
+            });
+
+            // ================= [新增/修改] 视线复位逻辑 =================
+            
+            // 1. 鼠标离开窗口：停止拖动 并 视线回正
+            document.body.addEventListener('mouseleave', function() {
+                isDragging = false;
+                if (model) {
+                    // model.focus 接收的是屏幕上的绝对坐标 (x, y)
+                    // 传入 (0,0) 会看向左上角
+                    // 传入 (model.x, model.y) 会让模型看向自己的中心，从而达到"回正"看着前方的效果
+                    model.focus(model.x, model.y); 
+                }
+            });
+
+            // 2. 窗口失去焦点（切换到其他软件）：视线回正
+            window.addEventListener('blur', function() {
+                if (model) {
+                    // 同上，看向模型自身位置即为回正
+                    model.focus(model.x, model.y);
+                }
+            });
+            
+            // 注意：当鼠标重新进入或移动时，pixi-live2d-display 
+            // 库会自动接管并重新让视线跟随鼠标，不需要我们手动编写 mouseenter 逻辑。
+        }
+
+        // 启动基础动画（呼吸和眨眼）
+        function startBasicAnimations() {
+            // 清除之前的计时器
+            if (breathingTimer) clearInterval(breathingTimer);
+            if (blinkingTimer) clearInterval(blinkingTimer);
+
+            // 呼吸动画 - 每2秒轻微改变模型的缩放
+            let breathDir = 1;
+            let breathAmt = 0;
+            // === 调整这些参数 ===
+            const BREATH_SPEED = 0.0002;    // 原来是 0.001，改小让变化更慢
+            const BREATH_RANGE = 0.005;     // 原来是 0.01，改小让幅度更小
+            const UPDATE_INTERVAL = 100;    // 原来是 50ms，改大让更新更慢
+            
+            breathingTimer = setInterval(() => {
+                if (!model) return;
+                
+                breathAmt += BREATH_SPEED * breathDir;
+                if (breathAmt >= BREATH_RANGE || breathAmt <= 0) {
+                    breathDir *= -1;
+                }
+                
+                const scale = 1 + breathAmt;
+                model.scale.set(modelScale * scale, modelScale * scale);
+            }, UPDATE_INTERVAL);
+
+            // 眨眼动画 - 随机间隔眨眼
+            const blink = () => {
+                if (!model) return;
+                
+                // 检查模型是否有眨眼参数
+                if (model.internalModel) {
+                    // 眨眼参数名称可能因模型而异
+                    const blinkParams = ['PARAM_EYE_L_OPEN', 'PARAM_EYE_R_OPEN'];
+                    
+                    blinkParams.forEach(param => {
+                        try {
+                            // 安全地检查参数是否存在
+                            if (typeof model.internalModel.getParameterValueById === 'function') {
+                                // 存储原始值 (如果能获取到)
+                                const originalValue = model.internalModel.getParameterValueById(param);
+                                
+                                // 闭眼
+                                model.internalModel.setParameterValueById(param, 0);
+                                
+                                // 200ms后睁眼
+                                setTimeout(() => {
+                                    if (model && model.internalModel) {
+                                        model.internalModel.setParameterValueById(param, originalValue);
+                                    }
+                                }, 200);
+                            }
+                        } catch (e) {
+                            // 忽略错误，继续执行
+                            console.log(`眨眼参数 ${param} 不可用`);
+                        }
+                    });
+                }
+                
+                // 设置下一次眨眼
+                const nextBlinkTime = 3000 + Math.random() * 5000; // 3-8秒随机间隔
+                blinkingTimer = setTimeout(blink, nextBlinkTime);
+            };
+            
+            // 开始第一次眨眼
+            blinkingTimer = setTimeout(blink, 3000);
+        }
+
+        // 初始化WebSocket连接
+        function initWebSocket() {
+            const http_protocol = window.location.protocol;
+            const ws_protocol = http_protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${ws_protocol}//${window.location.host}/ws/vrm`;
+            
+            ttsWebSocket = new WebSocket(wsUrl);
+            
+            ttsWebSocket.onopen = () => {
+                console.log('WebSocket connected');
+                wsConnected = true;
+                updateWSStatus();
+                
+                // 发送连接确认
+                sendToMain('vrmConnected', { status: 'ready' });
+            };
+            
+            ttsWebSocket.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    handleTTSMessage(message);
+                } catch (error) {
+                    console.error('Error parsing WebSocket message:', error);
+                }
+            };
+            
+            ttsWebSocket.onclose = () => {
+                console.log('WebSocket disconnected');
+                wsConnected = false;
+                updateWSStatus();
+                
+                // 自动重连
+                setTimeout(() => {
+                    if (!wsConnected) {
+                        initWebSocket();
+                    }
+                }, 3000);
+            };
+            
+            ttsWebSocket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        // 初始化主应用WebSocket连接（用于发送控制消息）
+        function initMainWebSocket() {
+            const http_protocol = window.location.protocol;
+            const ws_protocol = http_protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${ws_protocol}//${window.location.host}/ws`;
+            
+            mainWebSocket = new WebSocket(wsUrl);
+            
+            mainWebSocket.onopen = () => {
+                console.log('Main WebSocket connected');
+                mainWsConnected = true;
+            };
+            
+            mainWebSocket.onclose = () => {
+                console.log('Main WebSocket disconnected');
+                mainWsConnected = false;
+                
+                // 自动重连
+                setTimeout(() => {
+                    if (!mainWsConnected) {
+                        initMainWebSocket();
+                    }
+                }, 3000);
+            };
+            
+            mainWebSocket.onerror = (error) => {
+                console.error('Main WebSocket error:', error);
+            };
+        }
+
+        // 发送消息到主界面
+        function sendToMain(type, data) {
+            if (ttsWebSocket && wsConnected) {
+                ttsWebSocket.send(JSON.stringify({
+                    type,
+                    data,
+                    timestamp: Date.now()
+                }));
+            }
+        }
+
+        // 发送消息到主应用（/settings 页面）
+        function sendToMainApp(type, data) {
+            if (mainWebSocket && mainWsConnected) {
+                mainWebSocket.send(JSON.stringify({
+                    type,
+                    data,
+                    timestamp: Date.now()
+                }));
+            } else {
+                console.warn('Main WebSocket 未连接，消息发送失败');
+            }
+        }
+
+        // 处理TTS消息
+        function handleTTSMessage(message) {
+            const { type, data } = message;
+
+            switch (type) {
+                case 'ttsStarted':
+                    isOmniMode = false;
+                    isAudioStreaming = false;
+                    fullTargetText = "";
+                    currentVisibleCount = 0;
+                    displayStartIndex = 0;
+                    omniNextStartTime = 0;
+                    stopTypewriterLoop();
+                    stopAllChunkAnimations();
+                    clearSubtitle();
+                    break;
+
+                case 'omniStreaming':
+                    // 只有 default 窗口响应 OMNI 流
+                    isOmniMode = true;
+                    isAudioStreaming = true;
+                    if (data.text) fullTargetText = data.text;
+                    if (data.audioData) processOmniStreaming(data);
+                    startTypewriterLoop();
+                    break;
+
+                case 'startSpeaking':
+                    // 传统 TTS 逻辑
+                    isOmniMode = false;
+                    startLipSyncForChunk(data); 
+                    break;
+
+                case 'stopSpeaking':
+                    isOmniMode = false;
+                    isAudioStreaming = false;
+                    stopTypewriterLoop();
+                    finalizeSpeech(true); // 立即停止动画和闭嘴
+                    break;
+
+                case 'allChunksCompleted':
+                    isOmniMode = false; 
+                    isAudioStreaming = false; 
+                    
+                    // 检查：如果文字也已经打完了，立即清理
+                    if (currentVisibleCount >= fullTargetText.length) {
+                        finalizeSpeech(false);
+                    }
+                    break;
+            }
+        }
+                
+
+        async function processOmniStreaming(data) {
+            const chunkId = 'omni_live_stream';
+            try {
+                if (!currentAudioContext) {
+                    currentAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (currentAudioContext.state === 'suspended') await currentAudioContext.resume();
+
+                let state = chunkAnimations.get(chunkId);
+                if (!state) {
+                    state = { 
+                        isPlaying: true, 
+                        analyser: currentAudioContext.createAnalyser(),
+                        expression: 'neutral' 
+                    };
+                    // 调优分析器参数
+                    state.analyser.fftSize = 512; // 较小的 FFT 换取更快的响应
+                    state.analyser.smoothingTimeConstant = 0.2; 
+                    state.analyser.connect(currentAudioContext.destination);
+                    chunkAnimations.set(chunkId, state);
+                    
+                    // 启动口型动画
+                    startOmniLipSync(chunkId, state);
+                    omniNextStartTime = currentAudioContext.currentTime;
+                }
+
+                const raw = atob(data.audioData);
+                const pcm16 = new Int16Array(raw.length / 2);
+                for (let i = 0; i < raw.length; i += 2) {
+                    pcm16[i >> 1] = raw.charCodeAt(i) | (raw.charCodeAt(i + 1) << 8);
+                }
+                
+                const buffer = currentAudioContext.createBuffer(1, pcm16.length, data.sampleRate || 24000);
+                buffer.getChannelData(0).set(Array.from(pcm16).map(v => v / 32768));
+
+                const source = currentAudioContext.createBufferSource();
+                source.buffer = buffer;
+                source.connect(state.analyser); // 必须连接到分析器
+
+                const now = currentAudioContext.currentTime;
+                if (omniNextStartTime < now) omniNextStartTime = now;
+                
+                source.start(omniNextStartTime);
+                omniNextStartTime += buffer.duration;
+            } catch (e) {
+                console.error('Omni Streaming Error:', e);
+            }
+        }
+
+
+        function startOmniLipSync(chunkId, state) {
+            const dataArray = new Uint8Array(state.analyser.frequencyBinCount);
+            let lastOpenY = 0;
+
+            function update() {
+                const currentState = chunkAnimations.get(chunkId);
+                if (!currentState || !currentState.isPlaying) {
+                    setMouthParams(0, 0);
+                    return;
+                }
+
+                const now = currentAudioContext.currentTime;
+                
+                // --- 核心修复：物理排程检测 ---
+                // 如果当前时间已经超过了音频排队的总时长，或者音频还没开始，强制闭嘴
+                if (now >= omniNextStartTime) {
+                    lastOpenY = lerp(lastOpenY, 0, 0.3); // 平滑闭嘴
+                    setMouthParams(lastOpenY, 0);
+                    state.animationId = requestAnimationFrame(update);
+                    return;
+                }
+
+                state.analyser.getByteFrequencyData(dataArray);
+                
+                // 计算音量
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                    sum += dataArray[i];
+                }
+                const rms = sum / dataArray.length;
+                
+                // 映射到口型张开度 (0.0 - 1.2)
+                // 调整 0.1 和 80 这两个数值可以改变灵敏度
+                let targetOpenY = Math.max(0, (rms / 80) * 1.2);
+                if (rms < 5) targetOpenY = 0; // 彻底静音时闭嘴
+
+                // 使用较快的 lerp 速度 (0.6) 保证跟上手速
+                lastOpenY = lerp(lastOpenY, targetOpenY, 0.6);
+                
+                // 模拟嘴型变化 (Form)
+                const targetForm = rms > 20 ? Math.sin(now * 10) * 0.3 : 0;
+
+                setMouthParams(lastOpenY, targetForm);
+                state.animationId = requestAnimationFrame(update);
+            }
+            state.animationId = requestAnimationFrame(update);
+        }
+
+        function startTypewriterLoop() {
+            if (typewriterTimer) return;
+
+            function type() {
+                const pendingChars = fullTargetText.length - currentVisibleCount;
+                
+                if (pendingChars > 0) {
+                    const now = currentAudioContext ? currentAudioContext.currentTime : 0;
+                    const remainingAudioTime = Math.max(0, omniNextStartTime - now);
+                    
+                    let idealDelay = 0;
+                    const isChinese = /[\u4e00-\u9fa5]/.test(fullTargetText);
+                    const naturalDelay = isChinese ? 220 : 110; 
+
+                    if (isAudioStreaming) {
+                        // A模式：流增长阶段 (稳健语速)
+                        idealDelay = naturalDelay;
+                        if (pendingChars > 40) idealDelay -= 40;
+                    } else {
+                        // B模式：收尾阶段 (同步对齐)
+                        if (remainingAudioTime > 0) {
+                            let syncDelay = (remainingAudioTime / pendingChars) * 1000;
+                            idealDelay = Math.min(syncDelay, naturalDelay);
+                        } else {
+                            idealDelay = 150; 
+                        }
+                        idealDelay = Math.max(idealDelay, 80);
+                    }
+                    
+                    const finalDelay = Math.min(Math.max(idealDelay, 80), 450);
+                    currentVisibleCount++;
+
+                    // 智能安全翻页逻辑
+                    const currentDisplayLength = currentVisibleCount - displayStartIndex;
+                    if (currentDisplayLength > MAX_WINDOW_SIZE) {
+                        let targetStartIndex = currentVisibleCount - OVERLAP_SIZE;
+                        const lookbackRange = Math.floor(MAX_WINDOW_SIZE * 0.6); 
+                        const searchText = fullTargetText.slice(currentVisibleCount - lookbackRange, currentVisibleCount);
+                        
+                        let lastPuncIndex = -1;
+                        for (let i = searchText.length - 1; i >= 0; i--) {
+                            if (SAFE_PUNC_LIST.test(searchText[i])) {
+                                lastPuncIndex = i;
+                                break;
+                            }
+                        }
+                        if (lastPuncIndex !== -1) {
+                            const foundIndex = (currentVisibleCount - lookbackRange) + lastPuncIndex + 1;
+                            const newOverlap = currentVisibleCount - foundIndex;
+                            if (newOverlap >= 5 && newOverlap <= MAX_WINDOW_SIZE * 0.8) {
+                                targetStartIndex = foundIndex;
+                            }
+                        }
+                        displayStartIndex = targetStartIndex;
+                        triggerPageFlipEffect();
+                    }
+
+                    const displayText = fullTargetText.slice(displayStartIndex, currentVisibleCount);
+                    const prefix = displayStartIndex > 0 ? "..." : "";
+                    renderSubtitleUI(prefix + displayText);
+
+                    typewriterTimer = setTimeout(type, finalDelay);
+                } else {
+                    typewriterTimer = null;
+                    if (!isOmniMode) finalizeSpeech(false);
+                }
+            }
+            type();
+        }
+
+        // 翻页视觉反馈
+        function triggerPageFlipEffect() {
+            const sub = document.getElementById('subtitle-container');
+            if (!sub) return;
+            sub.style.transition = 'none';
+            sub.style.opacity = '0.4'; 
+            void sub.offsetWidth; // 触发重绘
+            sub.style.transition = 'opacity 0.3s ease';
+            sub.style.opacity = '1';
+        }
+
+        function stopTypewriterLoop() {
+            if (typewriterTimer) {
+                clearTimeout(typewriterTimer);
+                typewriterTimer = null;
+            }
+        }
+
+
+        function renderSubtitleUI(text) {
+            if (!isSubtitleEnabled) return;
+            const subtitleElement = document.getElementById('subtitle-container');
+            if (!subtitleElement) return;
+
+            subtitleElement.textContent = text;
+            subtitleElement.style.opacity = '1';
+            
+            // 自动宽度适配
+            const maxWidth = window.innerWidth * 0.8;
+            subtitleElement.style.width = 'max-content';
+            subtitleElement.style.minWidth = '100px';
+            const rect = subtitleElement.getBoundingClientRect();
+            if (rect.width > maxWidth) {
+                subtitleElement.style.width = `${maxWidth}px`;
+            }
+        }
+
+        function finalizeSpeech(immediate = false) {
+            // 1. 立即停止口型动画（解决“音频停了口型还张着”的根本）
+            const chunkId = 'omni_live_stream';
+            if (chunkAnimations.has(chunkId)) {
+                const state = chunkAnimations.get(chunkId);
+                if (state.animationId) cancelAnimationFrame(state.animationId);
+                state.isPlaying = false;
+                chunkAnimations.delete(chunkId);
+            }
+            // 强制闭嘴
+            setMouthParams(0, 0);
+
+            if (immediate) {
+                clearSubtitle();
+                fullTargetText = "";
+                currentVisibleCount = 0;
+                displayStartIndex = 0;
+                omniNextStartTime = 0;
+            } else {
+                // 文字全部打完后，字幕留 2 秒，但口型已经在上面停掉了
+                if (subtitleTimeout) clearTimeout(subtitleTimeout);
+                subtitleTimeout = setTimeout(() => {
+                    if (!isOmniMode && !typewriterTimer) {
+                        clearSubtitle();
+                        fullTargetText = "";
+                        currentVisibleCount = 0;
+                        displayStartIndex = 0;
+                        omniNextStartTime = 0;
+                    }
+                }, 2000); 
+            }
+        }
+
+        // [修改版] 支持同时触发表情和动作，并在语音结束时复位动作
+        async function startLipSyncForChunk(data) {
+            const audio = data.audioDataUrl;
+            
+            // 更新字幕
+            if (data.text) {
+                updateSubtitle(data.text, data.chunkIndex);
+            }
+
+            // ---------------- 解析标签逻辑 ----------------
+            let targetExpression = null;
+            let targetMotion = null;
+
+            // 只有当有 expressions 列表时才进行解析
+            if (data.expressions && Array.isArray(data.expressions) && data.expressions.length > 0 && model) {
+                const caps = getModelCapabilities();
+                
+                // 遍历所有标签，尝试同时匹配一个表情和一个动作
+                for (let tag of data.expressions) {
+                    // 清理标签文本，移除 <> 和空格
+                    const cleanTag = tag.replace(/[<>]/g, '').trim();
+                    
+                    // 1. 尝试匹配表情 (如果还没找到表情)
+                    if (!targetExpression) {
+                        const matchedExp = caps.expressions.find(e => e.toLowerCase() === cleanTag.toLowerCase());
+                        if (matchedExp) {
+                            targetExpression = matchedExp;
+                            console.log(`[Live2D] 匹配到表情: ${targetExpression}`);
+                            continue; // 找到了表情，继续下一个标签看是不是动作
+                        }
+                    }
+                    
+                    // 2. 尝试匹配动作 (如果还没找到动作)
+                    if (!targetMotion) {
+                        const matchedMot = caps.motions.find(m => m.toLowerCase() === cleanTag.toLowerCase());
+                        if (matchedMot) {
+                            targetMotion = matchedMot;
+                            console.log(`[Live2D] 匹配到动作: ${targetMotion}`);
+                            continue;
+                        }
+                    }
+                    
+                    // 如果两个都找到了，可以提前结束循环(可选)
+                    if (targetExpression && targetMotion) break;
+                }
+            }
+
+            // ---------------- 动作触发逻辑 ----------------
+            if (targetMotion && model) {
+                console.log(`[Live2D] 开始执行动作: ${targetMotion}`);
+                try {
+                    // startMotion(组名, 索引(undefined为随机), 优先级)
+                    // 优先级 3 (FORCE) 确保打断当前动作立即执行
+                    model.motion(targetMotion, undefined, 3);
+                } catch (e) {
+                    console.warn("[Live2D] 触发动作失败:", e);
+                }
+            }
+
+            // ---------------- 语音播放与口型/表情逻辑 ----------------
+            // speak 方法返回一个 Promise，当音频播放结束时 resolve
+            try {
+                await model.speak(audio, {
+                    expression: targetExpression, // 设置表情
+                    resetExpression: true         // true: 语音结束后自动还原表情(默认为标准表情)
+                });
+            } catch (e) {
+                console.error("[Live2D] 播放音频出错:", e);
+            }
+
+            // ---------------- 语音结束后的动作复位逻辑 ----------------
+            // 当 await model.speak 完成，说明语音播完了
+            
+            if (model) {
+                // 1. 清除字幕
+                if (currentSubtitleChunkIndex === data.chunkIndex) {
+                    clearSubtitle();
+                }
+
+                // 2. 强制复位动作到 Idle 状态
+                // 只有当刚才执行了特殊动作，或者为了保险起见，都执行一次复位
+                if (targetMotion) {
+                    console.log("[Live2D] 语音结束，强制复位动作到 Idle");
+                    
+                    // 尝试查找名为 "Idle", "idle", "Standard" 等常见的待机动作组
+                    const caps = getModelCapabilities();
+                    const idleGroup = caps.motions.find(m => /idle|stand/i.test(m)) || 'Idle';
+                    
+                    try {
+                        // 再次使用高优先级触发 Idle，强行停止之前的动作并回到待机
+                        model.motion(idleGroup, undefined, 3);
+                    } catch (e) {
+                        // 如果模型没有 Idle 组，可能不需要手动复位，或者模型定义不同
+                        console.log("[Live2D] 尝试复位 Idle 失败 (可能模型没有Idle组):", e);
+                    }
+                }
+            }
+        }
+
+        /**
+         * 设置嘴部开合度
+         * 处理不同Live2D模型的参数设置方式
+         */
+        function setMouth(mouthY) {
+            if (!model || !model.internalModel || !model.internalModel.coreModel) return;
+
+            // 尝试不同的方法设置嘴部参数
+            try {
+                // 尝试方法1: setParameterValueById
+                if (typeof model.internalModel.setParameterValueById === 'function') {
+                    // 尝试不同的参数名
+                    model.internalModel.setParameterValueById('PARAM_MOUTH_OPEN_Y', mouthY);
+                    return;
+                }
+                
+                // 尝试方法2: coreModel.setParameterValueById
+                if (typeof model.internalModel.coreModel.setParameterValueById === 'function') {
+                    // 尝试ParamMouthOpenY
+                    model.internalModel.coreModel.setParameterValueById('ParamMouthOpenY', mouthY);
+                    return;
+                }
+                
+                // 尝试方法3: coreModel.setParamFloat
+                if (typeof model.internalModel.coreModel.setParamFloat === 'function') {
+                    // 尝试PARAM_MOUTH_OPEN_Y
+                    model.internalModel.coreModel.setParamFloat('PARAM_MOUTH_OPEN_Y', mouthY);
+                    return;
+                }
+                
+                // 尝试方法4: 通用设置方法
+                if (model.internalModel.parameters) {
+                    const mouthParam = model.internalModel.parameters.ids.indexOf('PARAM_MOUTH_OPEN_Y');
+                    if (mouthParam >= 0) {
+                        model.internalModel.parameters.values[mouthParam] = mouthY;
+                        return;
+                    }
+                }
+                
+                // 都失败了，记录错误
+                console.error('无法设置嘴型参数，未找到合适的方法');
+            } catch (error) {
+                console.error('设置嘴型时出错:', error);
+            }
+        }
+
+        /**
+         * 获取当前嘴部开合值
+         */
+        function getCurrentMouthOpenValue() {
+            try {
+                if (!model || !model.internalModel) return 0;
+                
+                // 尝试不同方法获取当前嘴部开合值
+                if (typeof model.internalModel.getParameterValueById === 'function') {
+                    return model.internalModel.getParameterValueById('PARAM_MOUTH_OPEN_Y') || 0;
+                } 
+                
+                if (model.internalModel.coreModel) {
+                    if (typeof model.internalModel.coreModel.getParameterValueById === 'function') {
+                        return model.internalModel.coreModel.getParameterValueById('ParamMouthOpenY') || 0;
+                    }
+                    
+                    if (typeof model.internalModel.coreModel.getParamFloat === 'function') {
+                        return model.internalModel.coreModel.getParamFloat('PARAM_MOUTH_OPEN_Y') || 0;
+                    }
+                }
+                
+                if (model.internalModel.parameters) {
+                    const mouthParam = model.internalModel.parameters.ids.indexOf('PARAM_MOUTH_OPEN_Y');
+                    if (mouthParam >= 0) {
+                        return model.internalModel.parameters.values[mouthParam] || 0;
+                    }
+                }
+                
+                return 0;
+            } catch (error) {
+                console.error('获取嘴部开合值时出错:', error);
+                return 0;
+            }
+        }
+
+        // 线性插值函数，用于平滑数值变化
+        function lerp(start, end, amt) {
+            return (1 - amt) * start + amt * end;
+        }
+
+        /**
+         * 最终升级版：基于共振峰 (Formants) 的 Live2D 口型同步
+         * 将 F1/F2 频谱特征映射到 Live2D 的 PARAM_MOUTH_OPEN_Y 和 PARAM_MOUTH_FORM
+         */
+        function startChunkAnimation(chunkId, chunkState) {
+            if (!chunkState || !chunkState.isPlaying || !chunkState.analyser) {
+                console.log(`无法为 Chunk ${chunkId} 启动动画`);
+                return;
+            }
+
+            const analyser = chunkState.analyser;
+            // 提高 FFT 精度以准确识别共振峰 (1024 或 2048)
+            analyser.fftSize = 2048; 
+            
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            const sampleRate = chunkState.audioContext ? chunkState.audioContext.sampleRate : 44100;
+            
+            // 平滑插值变量
+            let currentOpenY = 0;
+            let currentForm = 0;
+            
+            // 灵敏度设置
+            const SENSITIVITY = 4.0; // 整体张嘴幅度系数
+            const NOISE_GATE = 10;   // 底噪门限
+            
+            // 辅助函数：获取指定频率范围内的最强峰值
+            function getFormant(minFreq, maxFreq) {
+                const nyquist = sampleRate / 2;
+                const startIndex = Math.floor((minFreq / nyquist) * bufferLength);
+                const endIndex = Math.floor((maxFreq / nyquist) * bufferLength);
+                
+                let maxAmp = -Infinity;
+                let maxIndex = -1;
+                
+                for (let i = startIndex; i <= endIndex; i++) {
+                    if (dataArray[i] > maxAmp) {
+                        maxAmp = dataArray[i];
+                        maxIndex = i;
+                    }
+                }
+                
+                return {
+                    freq: (maxIndex / bufferLength) * nyquist,
+                    amp: maxAmp
+                };
+            }
+
+            function animateChunk() {
+                const currentState = chunkAnimations.get(chunkId);
+                if (!currentState || !currentState.isPlaying) {
+                    // 停止时闭嘴
+                    setMouthParams(0, 0); 
+                    return;
+                }
+
+                // 1. 获取频域数据
+                analyser.getByteFrequencyData(dataArray);
+
+                // 2. 检测共振峰 (Formants)
+                // F1 (200-1000Hz): 决定开口大小 (OpenY)
+                // F2 (1000-3500Hz): 决定嘴唇形状 (Form)
+                const f1 = getFormant(200, 1000);
+                const f2 = getFormant(1000, 3500);
+
+                // 3. 计算总能量 (用于控制是否开口)
+                // 计算人声核心频段 (200-4000Hz) 的平均能量
+                let vocalEnergy = 0;
+                const startBin = Math.floor((200 / (sampleRate/2)) * bufferLength);
+                const endBin = Math.floor((4000 / (sampleRate/2)) * bufferLength);
+                let binCount = 0;
+                
+                for(let i = startBin; i < endBin; i++) {
+                    vocalEnergy += dataArray[i];
+                    binCount++;
+                }
+                const avgVol = binCount > 0 ? vocalEnergy / binCount : 0;
+
+                // 4. 目标值计算
+                let targetOpenY = 0;
+                let targetForm = 0;
+
+                if (avgVol > NOISE_GATE) {
+                    // 归一化强度 (0.0 - 1.0)
+                    const intensity = Math.min(1.0, (avgVol / 255) * SENSITIVITY);
+                    
+                    // --- 核心映射逻辑：元音三角形 -> Live2D 参数 ---
+                    
+                    // 逻辑说明：
+                    // A (aa): F1 高 -> OpenY 大, Form 居中 (0)
+                    // I (ih): F1 低, F2 极高 -> OpenY 小, Form 极宽 (1)
+                    // U (ou): F1 低, F2 低 -> OpenY 小, Form 极圆 (-1)
+                    // E (ee): F2 高 -> Form 宽 (0.5 ~ 1)
+                    // O (oh): F1 中, F2 低 -> OpenY 中, Form 圆 (-0.5 ~ -1)
+
+                    if (f1.freq > 650) {
+                        // [A / aa] 区域
+                        targetOpenY = intensity * 1.0; 
+                        targetForm = 0; 
+                    } 
+                    else if (f1.freq < 500 && f2.freq > 1700) {
+                        // [I / ih] 区域
+                        targetOpenY = intensity * 0.3; // 咬字时嘴巴张不大
+                        targetForm = 0.8; // 咧嘴
+                    }
+                    else if (f1.freq < 500 && f2.freq < 1100) {
+                        // [U / ou] 区域
+                        targetOpenY = intensity * 0.4;
+                        targetForm = -0.9; // 嘟嘴
+                    }
+                    else if (f2.freq > 1600) {
+                        // [E / ee] 区域
+                        targetOpenY = intensity * 0.5;
+                        targetForm = 0.6; 
+                    }
+                    else {
+                        // [O / oh] 或 中性区域
+                        targetOpenY = intensity * 0.7;
+                        targetForm = -0.5;
+                    }
+                }
+
+                // 5. 平滑插值 (Lerp)
+                // Live2D 参数变化不需要像 VRM 那么快，稍微平滑一点更有质感
+                // 张嘴快 (0.5), 闭嘴和变形慢 (0.2)
+                const openSpeed = targetOpenY > currentOpenY ? 0.5 : 0.2;
+                currentOpenY = lerp(currentOpenY, targetOpenY, openSpeed);
+                
+                // Form 变化需要更平滑，避免嘴巴左右乱跳
+                currentForm = lerp(currentForm, targetForm, 0.15);
+
+                // 6. 应用参数
+                setMouthParams(currentOpenY, currentForm);
+
+                currentState.animationId = requestAnimationFrame(animateChunk);
+            }
+
+            console.log(`为 Chunk ${chunkId} 启动共振峰 Live2D 驱动`);
+            chunkState.animationId = requestAnimationFrame(animateChunk);
+        }
+        /**
+         * 统一设置嘴部参数的辅助函数
+         */
+        function setMouthParams(openY, form) {
+            if (!model || !model.internalModel) return;
+
+            // 设置张开度 (Y)
+            setMouth(openY); // 使用你原有的 setMouth 函数
+
+            // 设置嘴型 (Form)
+            try {
+                if (typeof model.internalModel.setParameterValueById === 'function') {
+                    model.internalModel.setParameterValueById('PARAM_MOUTH_FORM', form);
+                } else if (model.internalModel.coreModel && typeof model.internalModel.coreModel.setParameterValueById === 'function') {
+                    model.internalModel.coreModel.setParameterValueById('ParamMouthForm', form);
+                } else if (model.internalModel.coreModel && typeof model.internalModel.coreModel.setParamFloat === 'function') {
+                    model.internalModel.coreModel.setParamFloat('PARAM_MOUTH_FORM', form);
+                }
+            } catch (e) {
+                // 部分老模型可能没有 PARAM_MOUTH_FORM，忽略错误
+            }
+        }
+
+        /**
+         * 停止指定语音块的动画和音频
+         */
+        function stopChunkAnimation(chunkId) {
+            const chunkState = chunkAnimations.get(chunkId);
+            if (!chunkState) return;
+
+            console.log(`正在停止 Chunk ${chunkId} 的动画和音频`);
+
+            if (chunkState.animationId) {
+                cancelAnimationFrame(chunkState.animationId);
+            }
+            if (chunkState.audio) {
+                chunkState.audio.pause();
+                chunkState.audio.removeAttribute('src'); // 彻底释放资源
+                chunkState.audio.load();
+            }
+            if (chunkState.audioSource) {
+                chunkState.audioSource.disconnect();
+            }
+
+            chunkAnimations.delete(chunkId);
+
+            // 如果所有语音块都已结束，则重置嘴部
+            if (chunkAnimations.size === 0 && model && model.internalModel) {
+                console.log('所有语音块播放完毕，重置嘴部。');
+                setMouth(0); // 使用通用方法设置嘴部闭合
+                
+                // 尝试重置嘴型形状参数
+                try {
+                    if (typeof model.internalModel.setParameterValueById === 'function') {
+                        model.internalModel.setParameterValueById('PARAM_MOUTH_FORM', 0);
+                    } else if (typeof model.internalModel.coreModel.setParameterValueById === 'function') {
+                        model.internalModel.coreModel.setParameterValueById('ParamMouthForm', 0);
+                    }
+                } catch (e) {
+                    // 忽略错误
+                }
+            }
+        }
+
+        /**
+         * 停止所有正在播放的语音动画
+         */
+        function stopAllChunkAnimations(){
+            model.stopSpeaking?.();   // 立即停音并闭嘴
+            clearSubtitle();
+        }
+
+        // 初始化字幕元素
+        function initSubtitleElement() {
+            const subtitleElement = document.getElementById('subtitle-container');
+            
+            // 添加拖拽事件监听
+            subtitleElement.addEventListener('mousedown', startDragSubtitle);
+            document.addEventListener('mousemove', dragSubtitle);
+            document.addEventListener('mouseup', endDragSubtitle);
+        }
+
+        // 开始拖拽字幕
+        function startDragSubtitle(e) {
+            if (!isSubtitleEnabled) return;
+            
+            isDraggingSubtitle = true;
+            
+            // 获取字幕元素的初始位置
+            const rect = document.getElementById('subtitle-container').getBoundingClientRect();
+            
+            // 计算鼠标相对于字幕中心点的偏移量
+            subtitleOffsetX = e.clientX - (rect.left + rect.width / 2);
+            subtitleOffsetY = e.clientY - rect.top;
+            
+            // 禁用过渡效果
+            document.getElementById('subtitle-container').style.transition = 'none';
+        }
+
+        // 拖拽字幕
+        function dragSubtitle(e) {
+            if (isDraggingSubtitle) {
+                const subtitleElement = document.getElementById('subtitle-container');
+                
+                // 计算字幕中心点的目标位置
+                const centerX = e.clientX - subtitleOffsetX;
+                const centerY = e.clientY - subtitleOffsetY;
+                
+                // 限制在窗口范围内，保持水平居中
+                const halfWidth = subtitleElement.offsetWidth / 2;
+                const clampedX = Math.max(halfWidth, Math.min(centerX, window.innerWidth - halfWidth));
+                
+                // 设置位置时保持水平居中
+                subtitleElement.style.left = `${clampedX}px`;
+                subtitleElement.style.transform = 'translateX(-50%)'; // 水平居中
+                
+                // 垂直位置保持不变
+                const maxY = window.innerHeight - subtitleElement.offsetHeight;
+                const clampedY = Math.max(0, Math.min(centerY, maxY));
+                
+                subtitleElement.style.top = `${clampedY}px`;
+                subtitleElement.style.bottom = 'auto'; // 取消底部定位
+            }
+        }
+
+        // 结束拖拽字幕
+        function endDragSubtitle() {
+            if (isDraggingSubtitle) {
+                isDraggingSubtitle = false;
+                document.getElementById('subtitle-container').style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+            }
+        }
+
+        // 切换字幕显示/隐藏
+        function toggleSubtitle(enable) {
+            isSubtitleEnabled = enable;
+            if (isSubtitleEnabled) {
+                document.getElementById('subtitle-container').style.display = 'block';
+            } else {
+                document.getElementById('subtitle-container').style.display = 'none';
+            }
+        }
+
+        // 更新字幕内容
+        function updateSubtitle(text, chunkIndex) {
+            if (!isSubtitleEnabled) return;
+            
+            const subtitleElement = document.getElementById('subtitle-container');
+            
+            // 如果text只包含空白字符，则清除字幕
+            if (!text.trim()) {
+                clearSubtitle();
+                return;
+            }
+            currentSubtitleChunkIndex = chunkIndex;
+            
+            subtitleElement.style.opacity = '0';
+            setTimeout(() => {
+                subtitleElement.textContent = text;
+                
+                // 自动调整宽度
+                const maxWidth = window.innerWidth * 0.8;
+                subtitleElement.style.width = 'max-content';
+                subtitleElement.style.minWidth = '100px';
+                
+                const rect = subtitleElement.getBoundingClientRect();
+                if (rect.width > maxWidth) {
+                    subtitleElement.style.width = `${maxWidth}px`;
+                }
+                
+                subtitleElement.style.opacity = '1';
+            }, 300);
+            
+            if (subtitleTimeout) clearTimeout(subtitleTimeout);
+        }
+
+        // 清除字幕
+        function clearSubtitle() {
+            document.getElementById('subtitle-container').style.opacity = '0';
+            currentSubtitleChunkIndex = -1;
+        }
+
+        // 初始化控制面板
+        function initControlPanel() {
+            const controlPanel = document.getElementById('control-panel');
+            const tooltipContainer = document.getElementById('tooltip-container');
+            const tooltip = document.getElementById('tooltip');
+            
+            // --- 1. 获取所有按钮引用 ---
+            const dragButton = document.getElementById('drag-handle');
+            const lockButton = document.getElementById('lock-handle');
+            const modelButton = document.getElementById('model-handle');
+            const infoButton = document.getElementById('info-handle'); // [新增]
+            const promptButton = document.getElementById('prompt-handle');
+            const subtitleButton = document.getElementById('subtitle-handle');
+            const refreshButton = document.getElementById('refresh-handle');
+            const closeButton = document.getElementById('close-handle');
+
+            // --- 2. 定义受锁定影响的按钮组 ---
+            // (除了 Lock 按钮外，其他所有按钮在锁定时都应隐藏)
+            const otherButtons = [
+                dragButton, 
+                modelButton, 
+                infoButton, // [新增] 加入列表以支持自动隐藏
+                promptButton, 
+                subtitleButton, 
+                refreshButton, 
+                closeButton
+            ];
+
+            // 锁定状态
+            let isMouseLocked = false;
+
+            // --- 3. 工具提示逻辑 ---
+            function showTooltip(button, text) {
+                if (!button) return;
+                const rect = button.getBoundingClientRect();
+                tooltip.textContent = text;
+                const topPosition = rect.top + (rect.height - tooltip.offsetHeight) / 2;
+                tooltipContainer.style.left = `${rect.left - tooltip.offsetWidth - 15}px`;
+                tooltipContainer.style.top = `${topPosition}px`;
+                tooltipContainer.style.opacity = '1';
+                tooltipContainer.style.transform = 'translateX(0)';
+            }
+            
+            function hideTooltip() {
+                tooltipContainer.style.opacity = '0';
+                tooltipContainer.style.transform = 'translateX(-10px)';
+            }
+            
+            function addHoverEffect(button, text) {
+                if (!button) return;
+                button.addEventListener('mouseenter', () => showTooltip(button, text));
+                button.addEventListener('mouseleave', () => hideTooltip());
+            }
+
+            // --- 4. 锁定功能核心逻辑 ---
+
+            // 初始化锁定按钮
+            if (lockButton) {
+                lockButton.style.color = '#28a745'; // 默认绿色
+                addHoverEffect(lockButton, '锁定窗口 / Lock Window');
+            }
+
+            // 更新锁定状态
+            function updateLockState(locked) {
+                isMouseLocked = locked;
+                const icon = lockButton ? lockButton.querySelector('i') : null;
+
+                if (isMouseLocked) {
+                    // === 锁定状态 ===
+                    if (icon) icon.className = 'fas fa-lock';
+                    if (lockButton) {
+                        lockButton.style.color = '#dc3545'; // 红色
+                        lockButton.title = '解锁窗口';
+                    }
+
+                    // 隐藏其他按钮
+                    otherButtons.forEach(btn => {
+                        if(btn) {
+                            btn.style.opacity = '0';
+                            btn.style.pointerEvents = 'none';
+                            btn.style.visibility = 'hidden';
+                        }
+                    });
+
+                    // Electron 穿透设置 (开启忽略鼠标)
+                    if (isElectron() && window.electronAPI) {
+                        window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
+                    }
+
+                } else {
+                    // === 解锁状态 ===
+                    if (icon) icon.className = 'fas fa-lock-open';
+                    if (lockButton) {
+                        lockButton.style.color = '#28a745'; // 绿色
+                        lockButton.title = '锁定窗口';
+                    }
+
+                    // 恢复其他按钮
+                    otherButtons.forEach(btn => {
+                        if(btn) {
+                            btn.style.opacity = '1';
+                            btn.style.pointerEvents = 'auto';
+                            btn.style.visibility = 'visible';
+                        }
+                    });
+
+                    // Electron 穿透设置 (关闭忽略鼠标)
+                    if (isElectron() && window.electronAPI) {
+                        window.electronAPI.setIgnoreMouseEvents(false);
+                    }
+                }
+            }
+
+            // 绑定锁定按钮事件
+            if (lockButton) {
+                lockButton.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    updateLockState(!isMouseLocked);
+                    showTooltip(lockButton, isMouseLocked ? '解锁窗口 / Unlock' : '锁定窗口 / Lock');
+                });
+
+                // 临时捕获鼠标，确保锁定时也能点击解锁
+                lockButton.addEventListener('mouseenter', () => {
+                    if (isMouseLocked && isElectron() && window.electronAPI) {
+                        window.electronAPI.setIgnoreMouseEvents(false);
+                    }
+                });
+
+                lockButton.addEventListener('mouseleave', () => {
+                    if (isMouseLocked && isElectron() && window.electronAPI) {
+                        window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
+                    }
+                });
+            }
+
+            // --- 5. 绑定其他按钮逻辑 ---
+
+            // 拖拽
+            if (dragButton) addHoverEffect(dragButton, '拖动窗口 / Drag');
+
+            // 模型选择
+            if (modelButton) {
+                addHoverEffect(modelButton, '选择模型 / Select Model');
+                modelButton.addEventListener('click', (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    showModelSelector();
+                });
+            }
+
+            // [新增] 版权信息
+            if (infoButton) {
+                addHoverEffect(infoButton, '版权信息 / License Info');
+                infoButton.addEventListener('click', (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    showLicenseModal();
+                });
+            }
+
+            // 字幕
+            if (subtitleButton) {
+                subtitleButton.style.color = isSubtitleEnabled ? '#28a745' : '#dc3545';
+                addHoverEffect(subtitleButton, isSubtitleEnabled ? '关闭字幕 / Hide Subtitle' : '开启字幕 / Show Subtitle');
+                subtitleButton.addEventListener('click', (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    isSubtitleEnabled = !isSubtitleEnabled;
+                    toggleSubtitle(isSubtitleEnabled);
+                    subtitleButton.style.color = isSubtitleEnabled ? '#28a745' : '#dc3545';
+                    showTooltip(subtitleButton, isSubtitleEnabled ? '关闭字幕 / Hide Subtitle' : '开启字幕 / Show Subtitle');
+                });
+            }
+
+            // 刷新
+            if (refreshButton) {
+                addHoverEffect(refreshButton, '强制清理缓存并刷新 / Hard Refresh');
+                refreshButton.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    if (confirm('是否要清理所有缓存并重置模型设置？\n(这将删除你手动添加的所有自定义模型路径)')) {
+                        // 清理模型配置
+                        localStorage.removeItem('live2d_custom_models');
+                        localStorage.removeItem('live2d_last_used_model');
+                        
+                        // 清理 Cache API
+                        if ('caches' in window) {
+                            const names = await caches.keys();
+                            await Promise.all(names.map(n => caches.delete(n)));
+                        }
+
+                        // 强力刷新
+                        window.location.href = window.location.pathname + '?t=' + Date.now();
+                    }
+                });
+            }
+
+            // 注入提示词
+            if (promptButton) {
+                addHoverEffect(promptButton, '更新能力 / Update Prompt');
+                promptButton.addEventListener('click', (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    updateSystemPromptWithModelInfo();
+                });
+            }
+
+            // 关闭
+            if (closeButton) {
+                addHoverEffect(closeButton, '关闭窗口 / Close');
+                closeButton.addEventListener('click', (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    if (mainWsConnected && mainWebSocket) {
+                        sendToMainApp('trigger_close_extension', {});
+                    }
+                    setTimeout(() => window.close(), 150);
+                });
+            }
+
+            // --- 6. 面板显隐逻辑 (适配锁定模式) ---
+            let hideTimeout;
+            let isControlPanelHovered = false;
+
+            function showControlPanel() {
+                clearTimeout(hideTimeout);
+                controlPanel.style.opacity = '1';
+                controlPanel.style.visibility = 'visible';
+                controlPanel.style.transform = 'translateX(0)';
+                controlPanel.style.pointerEvents = 'auto';
+            }
+
+            function hideControlPanel() {
+                // 锁定时本身按钮已隐藏，不需要额外滑动隐藏
+                if (!isControlPanelHovered && !isMouseLocked) {
+                    controlPanel.style.opacity = '0';
+                    controlPanel.style.visibility = 'hidden';
+                    controlPanel.style.transform = 'translateX(20px)';
+                    controlPanel.style.pointerEvents = 'none';
+                }
+            }
+
+            function scheduleHide() {
+                clearTimeout(hideTimeout);
+                hideTimeout = setTimeout(hideControlPanel, 2000);
+            }
+
+            // 绑定全局鼠标事件
+            document.body.addEventListener('mouseenter', showControlPanel);
+            document.body.addEventListener('mousemove', () => {
+                showControlPanel();
+                scheduleHide();
+            });
+            document.body.addEventListener('mouseleave', () => {
+                if (!isControlPanelHovered) scheduleHide();
+            });
+
+            // 绑定面板鼠标事件
+            controlPanel.addEventListener('mouseenter', () => {
+                // 锁定时，进入面板区域允许操作（lockButton）
+                if (isMouseLocked && isElectron() && window.electronAPI) {
+                    // 保持 forward:true，具体由 lockButton 自己的 mouseenter 处理
+                } else {
+                    window.electronAPI?.setIgnoreMouseEvents(false);
+                }
+                isControlPanelHovered = true;
+                clearTimeout(hideTimeout);
+                showControlPanel();
+            });
+
+            controlPanel.addEventListener('mouseleave', () => {
+                isControlPanelHovered = false;
+                scheduleHide();
+                // 离开面板，如果处于锁定状态，恢复穿透
+                if (isMouseLocked && isElectron() && window.electronAPI) {
+                    window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
+                }
+            });
+
+            // 启动
+            showControlPanel();
+            scheduleHide();
+        }
+
+
+        // 更新WebSocket状态显示
+        function updateWSStatus() {
+            // 这里可以添加WebSocket状态的视觉反馈
+            console.log('WebSocket连接状态:', wsConnected ? '已连接' : '未连接');
+        }
+
+        // 等待页面加载完成
+        window.addEventListener('load', () => {
+            setTimeout(init, 1000);
+        });
+    </script>
+</body>
+</html>
+
