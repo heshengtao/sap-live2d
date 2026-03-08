@@ -1,0 +1,31 @@
+## 📜 许可与法律声明 / License & Legal Notice
+
+本仓库采用**代码与素材分离**的授权方式：
+This repository uses a **separation of code and assets** licensing model:
+
+| 内容 / Item | 来源与归属 / Source & Ownership | 许可协议 / License |
+| :--- | :--- | :--- |
+| **本项目原创代码**<br>Original Source Code | © sap-live2d | **MIT License** |
+| **Live2D Cubism SDK**<br>(`live2dcubismcore.min.js` etc.) | © Live2D Inc. | [Live2D Open Software License](https://www.live2d.com/eula/live2d-open-software-license-agreement_en.html) |
+| **Momose Hiyori 示例模型**<br>Sample Model | Illustration © Kani Biimu / Live2D Inc. | [Live2D Free Material License](https://www.live2d.com/eula/live2d-free-material-license-agreement_jp.html) |
+
+### ⚠️ 使用前须知 / Must-read Before Use
+
+1. **资产引用说明 / Assets Reference**:  
+   为了遵守 Live2D 许可协议，本仓库内**不包含**任何 Live2D SDK 的二进制文件或模型文件。程序运行时将通过公共 CDN 或远程 URL 动态加载这些资产。  
+   To comply with Live2D EULA, this repository **DOES NOT** contain SDK binaries or model files. These assets are loaded dynamically via public CDNs or remote URLs at runtime.
+
+2. **商业使用限制 / Commercial Use Restrictions**:  
+   - **小规模/个人**: 若你是个人开发者、学生或年营收低于 **1,000 万日元**（约 48 万人民币）的小型企业，可根据“免费材料许可”免费使用。
+   - **中大规模企业**: 若你的年营收超过 **1,000 万日元**，或为大型企业提供外包服务，**必须**在发布前向 [Live2D 官方申请出版许可](https://www.live2d.com/sdk/download/web/)。
+   - **Threshold**: For entities with annual revenue exceeding **10 million JPY**, a separate Publication License from Live2D Inc. is **mandatory** before any public distribution.
+
+3. **禁止转授权 / No Sublicensing**:  
+   本仓库的 MIT 协议**不涵盖** Live2D SDK 和模型。你不能以 MIT 协议的名义对 Live2D 的技术或素材进行二次转让或授权。  
+   The MIT license of this repo **DOES NOT** apply to the Live2D SDK or sample models. You cannot sublicense Live2D's proprietary assets.
+
+4. **免责声明 / Liability**:  
+   本项目仅作为技术集成演示。由于最终用户配置或不当使用 Live2D 资产而产生的法律纠纷，由**最终用户**自行承担。  
+   This project is provided "as-is" for technical integration demo. End-users are solely responsible for any legal issues arising from their configuration or use of Live2D assets.
+
+👉 详细协议原文请移步 / Full License Text: [Live2D Cubism Official](https://www.live2d.com/)
