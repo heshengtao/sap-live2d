@@ -97,7 +97,7 @@
         /* 字幕容器样式 */
         #subtitle-container {
             position: fixed;
-            bottom: 30%;
+            top: 70%; 
             left: 50%;
             width: auto;
             max-width: 80%;
@@ -654,7 +654,8 @@
         let isAudioStreaming = false;     // 是否正在推流
         let isOmniMode = false;           // 是否处于 Omni 模式
         let omniNextStartTime = 0;        // 预估的音频流结束时间点
-
+        let omniTotalAudioDuration = 0;   // [新增] 记录当前句子已接收到的音频总时长
+        let omniPlaybackStartTime = 0;    // [新增] 记录这句音频开始播放的绝对时间
         // --- 字幕常量 ---
         const MAX_WINDOW_SIZE = 45;       // 一屏最多显示的字符数
         const OVERLAP_SIZE = 20;          // 翻页时保留的重叠字符数
@@ -1482,6 +1483,8 @@
                     currentVisibleCount = 0;
                     displayStartIndex = 0;
                     omniNextStartTime = 0;
+                    omniTotalAudioDuration = 0; // [新增]
+                    omniPlaybackStartTime = 0;  // [新增]
                     stopTypewriterLoop();
                     stopAllChunkAnimations();
                     clearSubtitle();
@@ -1562,9 +1565,15 @@
                 source.connect(state.analyser); // 必须连接到分析器
 
                 const now = currentAudioContext.currentTime;
+
+                if (omniNextStartTime === 0 || omniPlaybackStartTime === 0) {
+                    omniPlaybackStartTime = Math.max(now, omniNextStartTime);
+                }
+
                 if (omniNextStartTime < now) omniNextStartTime = now;
                 
                 source.start(omniNextStartTime);
+                omniTotalAudioDuration += buffer.duration;
                 omniNextStartTime += buffer.duration;
             } catch (e) {
                 console.error('Omni Streaming Error:', e);
@@ -1623,71 +1632,75 @@
         function startTypewriterLoop() {
             if (typewriterTimer) return;
 
-            function type() {
-                const pendingChars = fullTargetText.length - currentVisibleCount;
-                
-                if (pendingChars > 0) {
-                    const now = currentAudioContext ? currentAudioContext.currentTime : 0;
-                    const remainingAudioTime = Math.max(0, omniNextStartTime - now);
-                    
-                    let idealDelay = 0;
-                    const isChinese = /[\u4e00-\u9fa5]/.test(fullTargetText);
-                    const naturalDelay = isChinese ? 220 : 110; 
+            function syncTextToAudio() {
+                if (!isOmniMode || !currentAudioContext) {
+                    typewriterTimer = null;
+                    return;
+                }
 
-                    if (isAudioStreaming) {
-                        // A模式：流增长阶段 (稳健语速)
-                        idealDelay = naturalDelay;
-                        if (pendingChars > 40) idealDelay -= 40;
-                    } else {
-                        // B模式：收尾阶段 (同步对齐)
-                        if (remainingAudioTime > 0) {
-                            let syncDelay = (remainingAudioTime / pendingChars) * 1000;
-                            idealDelay = Math.min(syncDelay, naturalDelay);
-                        } else {
-                            idealDelay = 150; 
-                        }
-                        idealDelay = Math.max(idealDelay, 80);
+                const now = currentAudioContext.currentTime;
+                const totalChars = fullTargetText.length;
+
+                if (totalChars > 0 && omniTotalAudioDuration > 0) {
+                    // 计算当前音频播放了多长时间
+                    const playedTime = Math.max(0, now - omniPlaybackStartTime);
+                    
+                    // 计算播放进度比例 (给1.05的提前量，看着更舒服)
+                    let progress = (playedTime / omniTotalAudioDuration) * 1.05; 
+                    progress = Math.min(1.0, progress); 
+
+                    let targetCharCount = Math.floor(progress * totalChars);
+
+                    // 如果断流结束了，直接允许跑到 100%
+                    if (!isAudioStreaming && now >= omniNextStartTime) {
+                        targetCharCount = totalChars;
                     }
-                    
-                    const finalDelay = Math.min(Math.max(idealDelay, 80), 450);
-                    currentVisibleCount++;
 
-                    // 智能安全翻页逻辑
-                    const currentDisplayLength = currentVisibleCount - displayStartIndex;
-                    if (currentDisplayLength > MAX_WINDOW_SIZE) {
-                        let targetStartIndex = currentVisibleCount - OVERLAP_SIZE;
-                        const lookbackRange = Math.floor(MAX_WINDOW_SIZE * 0.6); 
-                        const searchText = fullTargetText.slice(currentVisibleCount - lookbackRange, currentVisibleCount);
+                    if (targetCharCount > currentVisibleCount) {
+                        currentVisibleCount = targetCharCount;
                         
-                        let lastPuncIndex = -1;
-                        for (let i = searchText.length - 1; i >= 0; i--) {
-                            if (SAFE_PUNC_LIST.test(searchText[i])) {
-                                lastPuncIndex = i;
-                                break;
+                        // 智能安全翻页逻辑 (完全保留原 Live2D 参数)
+                        const currentDisplayLength = currentVisibleCount - displayStartIndex;
+                        if (currentDisplayLength > MAX_WINDOW_SIZE) {
+                            let targetStartIndex = currentVisibleCount - OVERLAP_SIZE;
+                            const lookbackRange = Math.floor(MAX_WINDOW_SIZE * 0.6); 
+                            const searchText = fullTargetText.slice(currentVisibleCount - lookbackRange, currentVisibleCount);
+                            
+                            let lastPuncIndex = -1;
+                            for (let i = searchText.length - 1; i >= 0; i--) {
+                                if (SAFE_PUNC_LIST.test(searchText[i])) {
+                                    lastPuncIndex = i;
+                                    break;
+                                }
                             }
-                        }
-                        if (lastPuncIndex !== -1) {
-                            const foundIndex = (currentVisibleCount - lookbackRange) + lastPuncIndex + 1;
-                            const newOverlap = currentVisibleCount - foundIndex;
-                            if (newOverlap >= 5 && newOverlap <= MAX_WINDOW_SIZE * 0.8) {
-                                targetStartIndex = foundIndex;
+                            if (lastPuncIndex !== -1) {
+                                const foundIndex = (currentVisibleCount - lookbackRange) + lastPuncIndex + 1;
+                                const newOverlap = currentVisibleCount - foundIndex;
+                                if (newOverlap >= 5 && newOverlap <= MAX_WINDOW_SIZE * 0.8) {
+                                    targetStartIndex = foundIndex;
+                                }
                             }
+                            displayStartIndex = targetStartIndex;
+                            triggerPageFlipEffect(); // 触发 Live2D 版特有的闪烁过渡
                         }
-                        displayStartIndex = targetStartIndex;
-                        triggerPageFlipEffect();
+
+                        const displayText = fullTargetText.slice(displayStartIndex, currentVisibleCount);
+                        const prefix = displayStartIndex > 0 ? "..." : "";
+                        renderSubtitleUI(prefix + displayText);
                     }
+                }
 
-                    const displayText = fullTargetText.slice(displayStartIndex, currentVisibleCount);
-                    const prefix = displayStartIndex > 0 ? "..." : "";
-                    renderSubtitleUI(prefix + displayText);
-
-                    typewriterTimer = setTimeout(type, finalDelay);
-                } else {
+                // 判断是否结束
+                if (!isOmniMode || (!isAudioStreaming && currentVisibleCount >= totalChars)) {
                     typewriterTimer = null;
                     if (!isOmniMode) finalizeSpeech(false);
+                } else {
+                    // 帧同步递归
+                    typewriterTimer = requestAnimationFrame(syncTextToAudio);
                 }
             }
-            type();
+            
+            typewriterTimer = requestAnimationFrame(syncTextToAudio);
         }
 
         // 翻页视觉反馈
@@ -1745,6 +1758,8 @@
                 currentVisibleCount = 0;
                 displayStartIndex = 0;
                 omniNextStartTime = 0;
+                omniTotalAudioDuration = 0; // [新增]
+                omniPlaybackStartTime = 0;  // [新增]
             } else {
                 // 文字全部打完后，字幕留 2 秒，但口型已经在上面停掉了
                 if (subtitleTimeout) clearTimeout(subtitleTimeout);
@@ -1755,6 +1770,8 @@
                         currentVisibleCount = 0;
                         displayStartIndex = 0;
                         omniNextStartTime = 0;
+                        omniTotalAudioDuration = 0; // [新增]
+                        omniPlaybackStartTime = 0;  // [新增]
                     }
                 }, 2000); 
             }
