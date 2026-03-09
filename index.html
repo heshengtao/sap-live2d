@@ -645,7 +645,11 @@
         let modelX = 0;
         let modelY = 0;
         let modelScale = 0.2;  // 初始缩放值
-        
+        let ttsQueue = [];             // 存储待播放的音频块
+        let isPlayingTTS = false;      // 当前是否正在播放传统 TTS
+        let ttsSessionId = 0;              // 会话轮次锁：防止新对话被老对话污染
+        let currentTTSAudioElement = null; // 原生音频对象：用于精确控制播放和打断
+
         // --- OMNI & 字幕控制变量 ---
         let fullTargetText = "";          // 记录当前对话收到的所有文本
         let currentVisibleCount = 0;      // 当前已显示的字符数
@@ -955,6 +959,35 @@
             return model ? model.name : null;
         }
         
+        // [新增/修改] 处理传统 TTS 队列（带轮次锁）
+        async function processTTSQueue() {
+            if (isPlayingTTS || ttsQueue.length === 0) return;
+            
+            isPlayingTTS = true;
+            const mySessionId = ttsSessionId; // 锁定当前这批任务的轮次 ID
+
+            while (ttsQueue.length > 0) {
+                // 如果轮次 ID 变了（比如用户打断了，开启了新对话），立刻放弃当前队列
+                if (ttsSessionId !== mySessionId) break;
+
+                const data = ttsQueue.shift();
+                try {
+                    // 将当前的轮次 ID 传进去，确保播放中途也能被打断
+                    await startLipSyncForChunk(data, mySessionId);
+                } catch (e) {
+                    console.error("排队播放 TTS 报错:", e);
+                }
+            }
+
+            // 只有当轮次没变（说明这批队列是自然播完的），才清理状态和闭嘴
+            if (ttsSessionId === mySessionId) {
+                isPlayingTTS = false;
+                if (!isOmniMode) {
+                    finalizeSpeech(false);
+                }
+            }
+        }
+
         // [新增] 获取当前模型支持的所有表情和动作名称
         function getModelCapabilities() {
             if (!model || !model.internalModel) return { expressions: [], motions: [] };
@@ -1483,15 +1516,29 @@
                     currentVisibleCount = 0;
                     displayStartIndex = 0;
                     omniNextStartTime = 0;
-                    omniTotalAudioDuration = 0; // [新增]
-                    omniPlaybackStartTime = 0;  // [新增]
+                    omniTotalAudioDuration = 0; 
+                    omniPlaybackStartTime = 0;  
+                    
+                    // 【关键】开启新对话时，强制打断上一轮的传统 TTS
+                    ttsSessionId++; // 轮次 +1，让上一轮的 while 循环自动作废
+                    ttsQueue = [];
+                    isPlayingTTS = false;
+                    
+                    // 强行停止正在播放的原生音频
+                    if (currentTTSAudioElement) {
+                        currentTTSAudioElement.pause();
+                        currentTTSAudioElement.removeAttribute('src');
+                        currentTTSAudioElement = null;
+                    }
+                    model?.stopSpeaking?.(); // Live2D 闭嘴
+                    
                     stopTypewriterLoop();
                     stopAllChunkAnimations();
                     clearSubtitle();
                     break;
 
                 case 'omniStreaming':
-                    // 只有 default 窗口响应 OMNI 流
+                    // ... (保持原样) ...
                     isOmniMode = true;
                     isAudioStreaming = true;
                     if (data.text) fullTargetText = data.text;
@@ -1500,30 +1547,31 @@
                     break;
 
                 case 'startSpeaking':
-                    // 传统 TTS 逻辑
                     isOmniMode = false;
-                    startLipSyncForChunk(data); 
+                    ttsQueue.push(data);     
+                    processTTSQueue();       
                     break;
 
                 case 'stopSpeaking':
                     isOmniMode = false;
                     isAudioStreaming = false;
                     stopTypewriterLoop();
-                    finalizeSpeech(true); // 立即停止动画和闭嘴
+                    
+                    // 【超级核心修复】
+                    // 绝对不要在这里清空 ttsQueue！
+                    // 后端通常在“文本生成完毕”时发送 stopSpeaking，如果我们在这里清空队列，还没播完的音频就会被直接抛弃！
+                    // 打断逻辑已经全部移交给了 ttsStarted 处理。
                     break;
 
                 case 'allChunksCompleted':
                     isOmniMode = false; 
                     isAudioStreaming = false; 
-                    
-                    // 检查：如果文字也已经打完了，立即清理
-                    if (currentVisibleCount >= fullTargetText.length) {
+                    if (currentVisibleCount >= fullTargetText.length && !isPlayingTTS) {
                         finalizeSpeech(false);
                     }
                     break;
             }
         }
-                
 
         async function processOmniStreaming(data) {
             const chunkId = 'omni_live_stream';
@@ -1777,103 +1825,90 @@
             }
         }
 
-        // [修改版] 支持同时触发表情和动作，并在语音结束时复位动作
-        async function startLipSyncForChunk(data) {
-            const audio = data.audioDataUrl;
-            
-            // 更新字幕
+        // [最终修正版] 恢复 Live2D 原生播放 + 队列轮次锁 + 15秒防卡死保护
+        async function startLipSyncForChunk(data, mySessionId) {
+            // ---------------- 1. 更新字幕 ----------------
             if (data.text) {
                 updateSubtitle(data.text, data.chunkIndex);
             }
 
-            // ---------------- 解析标签逻辑 ----------------
+            // ---------------- 2. 解析标签逻辑 (表情与动作) ----------------
             let targetExpression = null;
             let targetMotion = null;
 
-            // 只有当有 expressions 列表时才进行解析
             if (data.expressions && Array.isArray(data.expressions) && data.expressions.length > 0 && model) {
                 const caps = getModelCapabilities();
-                
-                // 遍历所有标签，尝试同时匹配一个表情和一个动作
                 for (let tag of data.expressions) {
-                    // 清理标签文本，移除 <> 和空格
-                    const cleanTag = tag.replace(/[<>]/g, '').trim();
+                    const cleanTag = tag.replace(/[<>]/g, '').trim().toLowerCase();
                     
-                    // 1. 尝试匹配表情 (如果还没找到表情)
+                    // 匹配表情
                     if (!targetExpression) {
-                        const matchedExp = caps.expressions.find(e => e.toLowerCase() === cleanTag.toLowerCase());
-                        if (matchedExp) {
-                            targetExpression = matchedExp;
-                            console.log(`[Live2D] 匹配到表情: ${targetExpression}`);
-                            continue; // 找到了表情，继续下一个标签看是不是动作
-                        }
+                        const matchedExp = caps.expressions.find(e => e.toLowerCase() === cleanTag);
+                        if (matchedExp) targetExpression = matchedExp;
                     }
-                    
-                    // 2. 尝试匹配动作 (如果还没找到动作)
+                    // 匹配动作
                     if (!targetMotion) {
-                        const matchedMot = caps.motions.find(m => m.toLowerCase() === cleanTag.toLowerCase());
-                        if (matchedMot) {
-                            targetMotion = matchedMot;
-                            console.log(`[Live2D] 匹配到动作: ${targetMotion}`);
-                            continue;
-                        }
+                        const matchedMot = caps.motions.find(m => m.toLowerCase() === cleanTag);
+                        if (matchedMot) targetMotion = matchedMot;
                     }
-                    
-                    // 如果两个都找到了，可以提前结束循环(可选)
-                    if (targetExpression && targetMotion) break;
                 }
             }
 
-            // ---------------- 动作触发逻辑 ----------------
-            if (targetMotion && model) {
-                console.log(`[Live2D] 开始执行动作: ${targetMotion}`);
-                try {
-                    // startMotion(组名, 索引(undefined为随机), 优先级)
-                    // 优先级 3 (FORCE) 确保打断当前动作立即执行
-                    model.motion(targetMotion, undefined, 3);
-                } catch (e) {
-                    console.warn("[Live2D] 触发动作失败:", e);
-                }
-            }
-
-            // ---------------- 语音播放与口型/表情逻辑 ----------------
-            // speak 方法返回一个 Promise，当音频播放结束时 resolve
-            try {
-                await model.speak(audio, {
-                    expression: targetExpression, // 设置表情
-                    resetExpression: true         // true: 语音结束后自动还原表情(默认为标准表情)
-                });
-            } catch (e) {
-                console.error("[Live2D] 播放音频出错:", e);
-            }
-
-            // ---------------- 语音结束后的动作复位逻辑 ----------------
-            // 当 await model.speak 完成，说明语音播完了
-            
+            // ---------------- 3. 独立触发表情和动作 ----------------
+            // 必须在 speak 之前独立触发，避免被库内部重置
             if (model) {
-                // 1. 清除字幕
-                if (currentSubtitleChunkIndex === data.chunkIndex) {
-                    clearSubtitle();
-                }
-
-                // 2. 强制复位动作到 Idle 状态
-                // 只有当刚才执行了特殊动作，或者为了保险起见，都执行一次复位
-                if (targetMotion) {
-                    console.log("[Live2D] 语音结束，强制复位动作到 Idle");
-                    
-                    // 尝试查找名为 "Idle", "idle", "Standard" 等常见的待机动作组
-                    const caps = getModelCapabilities();
-                    const idleGroup = caps.motions.find(m => /idle|stand/i.test(m)) || 'Idle';
-                    
+                if (targetExpression) {
                     try {
-                        // 再次使用高优先级触发 Idle，强行停止之前的动作并回到待机
-                        model.motion(idleGroup, undefined, 3);
-                    } catch (e) {
-                        // 如果模型没有 Idle 组，可能不需要手动复位，或者模型定义不同
-                        console.log("[Live2D] 尝试复位 Idle 失败 (可能模型没有Idle组):", e);
-                    }
+                        model.expression(targetExpression);
+                        console.log(`[Live2D] 触发表情: ${targetExpression}`);
+                    } catch (e) { console.warn("[Live2D] 表情触发失败:", e); }
+                }
+                
+                if (targetMotion) {
+                    try {
+                        model.motion(targetMotion, undefined, 3); // 3代表强行打断之前的动作优先级
+                        console.log(`[Live2D] 触发动作: ${targetMotion}`);
+                    } catch (e) { console.warn("[Live2D] 动作触发失败:", e); }
                 }
             }
+
+            // ---------------- 4. 播放音频并附带防卡死超时保护 ----------------
+            if (model && data.audioDataUrl) {
+                // 如果在排队期间轮次已经变了（用户打断），直接退出
+                if (ttsSessionId !== mySessionId) return;
+
+                try {
+                    // 使用 Promise.race，让原生播放和15秒超时进行"赛跑"
+                    // 这样既保证了绝对有声音，又保证了遇到坏音频时最多卡15秒就会强行跳过
+                    await Promise.race([
+                        model.speak(data.audioDataUrl), 
+                        new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error("AUDIO_TIMEOUT")), 15000);
+                        })
+                    ]);
+                } catch (e) {
+                    if (e.message === "AUDIO_TIMEOUT") {
+                        console.warn(`[Live2D] Chunk ${data.chunkIndex} 音频播放超时，强行放行，防止队列卡死`);
+                    } else {
+                        console.error("[Live2D] 播放音频出错:", e);
+                    }
+                }
+            } else {
+                // 没有音频但有文字或动作，根据文字长度模拟等待时间
+                const waitTime = data.text ? Math.max(1000, data.text.length * 200) : 1500;
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+
+            // ---------------- 5. 语音结束后的复位逻辑 ----------------
+            if (ttsSessionId !== mySessionId) {
+                return; 
+            }
+
+            if (model && currentSubtitleChunkIndex === data.chunkIndex) {
+                clearSubtitle();
+            }
+            // 注意：这里删除了原来强行切回 'Idle' 的代码
+            // Live2D 动作播放完毕后，会自动优雅过渡回默认待机动作，不会再出现动作抽搐失效的问题了
         }
 
         /**
