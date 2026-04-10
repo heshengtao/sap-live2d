@@ -266,6 +266,8 @@
             cursor: pointer;
             font-weight: 500;
             transition: all 0.2s;
+            text-align: center;
+            justify-content: center;
         }
 
         .btn-primary { background-color: #1890ff; color: white; }
@@ -338,7 +340,7 @@
 <body>
     <canvas id="canvas"></canvas>
     
-    <!-- 优化版：模型加载失败提示框 -->
+    <!-- 模型加载失败提示框 -->
     <div id="error-notice" style="display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(220, 53, 69, 0.95); color: white; padding: 15px 20px; border-radius: 8px; z-index: 10005; text-align: center; backdrop-filter: blur(10px); box-shadow: 0 4px 15px rgba(0,0,0,0.3); font-size: 14px; min-width: 320px; animation: fadeInDown 0.5s ease;">
         <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
             <i class="fas fa-exclamation-triangle"></i>
@@ -353,10 +355,10 @@
         </button>
     </div>
 
-    <!-- SDK 彻底加载失败的错误弹窗 (带关闭按钮) -->
-    <div id="sdk-error-notice" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255, 255, 255, 0.98); color: #333; padding: 25px; border-radius: 12px; z-index: 10005; text-align: center; backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(0,0,0,0.3); font-size: 14px; min-width: 320px; animation: fadeInDown 0.5s ease;">
-        <!-- 新增关闭按钮 -->
-        <i class="fas fa-times" style="position: absolute; top: 15px; right: 15px; cursor: pointer; font-size: 18px; color: #999; transition: color 0.2s;" onmouseover="this.style.color='#333'" onmouseout="this.style.color='#999'" onclick="document.getElementById('sdk-error-notice').style.display='none'; document.getElementById('overlay').style.display='none';"></i>
+    <!-- SDK 彻底加载失败的错误弹窗 (修复了关闭问题) -->
+    <div id="sdk-error-notice" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255, 255, 255, 0.98); color: #333; padding: 25px; border-radius: 12px; z-index: 10005; text-align: center; backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(0,0,0,0.3); font-size: 14px; min-width: 360px; animation: fadeInDown 0.5s ease;">
+        <!-- 新增关闭扩展的X按钮 -->
+        <i class="fas fa-times" style="position: absolute; top: 15px; right: 15px; cursor: pointer; font-size: 18px; color: #999; transition: color 0.2s;" onmouseover="this.style.color='#dc3545'" onmouseout="this.style.color='#999'" onclick="closeExtension()" title="关闭扩展"></i>
         
         <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
         <h3 style="margin: 0 0 15px 0; font-size: 18px;" data-i18n="sdkFailedTitle">Live2D SDK 加载失败</h3>
@@ -364,9 +366,16 @@
             本地目录未检测到 SDK，且从 CDN 网络拉取也失败了。<br>
             请手动将 <strong>Live2D SDK</strong> 文件放入 <code>sap-live2d</code> 扩展文件夹下。
         </div>
-        <a href="https://www.live2d.com/download/cubism-sdk/download-web/" target="_blank" class="btn btn-primary" style="display: inline-block; text-decoration: none; margin-top: 10px; width: 100%; box-sizing: border-box;">
-            <span data-i18n="btnDownloadSdk">前往官方下载 SDK</span>
-        </a>
+        
+        <!-- 双按钮：下载 / 强制关闭 -->
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <a href="https://www.live2d.com/download/cubism-sdk/download-web/" target="_blank" class="btn btn-primary" style="flex: 1; text-decoration: none; box-sizing: border-box;">
+                <span data-i18n="btnDownloadSdk">前往官方下载 SDK</span>
+            </a>
+            <button onclick="closeExtension()" class="btn btn-secondary" style="flex: 1; box-sizing: border-box; background: #fff1f0; color: #dc3545; border: 1px solid #ffa39e;">
+                <span data-i18n="btnCloseExtension">关闭扩展</span>
+            </button>
+        </div>
     </div>
 
     <!-- 版权声明弹窗 -->
@@ -463,6 +472,29 @@
     <script src="pixi.min.js"></script>
     
     <script>
+        // === 全局强制关闭扩展函数 (无论 WebSocket 是否成功初始化都能用) ===
+        function closeExtension() {
+            try {
+                // 如果控制面板的 WebSocket 已经连上了，直接用
+                if (typeof sendToMainApp === 'function' && mainWsConnected) {
+                    sendToMainApp('trigger_close_extension', {});
+                } else {
+                    // SDK 崩溃的情况下 WebSocket 肯定没连上，强行建一个短链接发完指令就关
+                    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
+                    const tempWs = new WebSocket(wsUrl);
+                    tempWs.onopen = () => {
+                        tempWs.send(JSON.stringify({ type: 'trigger_close_extension', data: {}, timestamp: Date.now() }));
+                        setTimeout(() => window.close(), 100);
+                    };
+                    tempWs.onerror = () => { window.close(); };
+                }
+            } catch (e) {
+                window.close();
+            }
+            // 兜底强制关闭当前窗口
+            setTimeout(() => window.close(), 300);
+        }
+
         // === 国际化词典配置 ===
         const i18nDict = {
             zh: {
@@ -477,6 +509,7 @@
                 sdkFailedTitle: "Live2D SDK 加载失败",
                 sdkFailedDesc: "本地目录未检测到 SDK，且从 CDN 网络拉取也失败了。<br>请手动将 <strong>Live2D SDK</strong> 文件放入 <code>sap-live2d</code> 扩展文件夹下。",
                 btnDownloadSdk: "前往官方下载 SDK",
+                btnCloseExtension: "关闭扩展",
                 switchingModel: "正在切换模型...",
                 licenseTitle: "版权声明",
                 licenseResource: "资源",
@@ -484,7 +517,6 @@
                 licenseLink: "协议",
                 mustRead: "⚠️ 使用之前必读",
                 btnConfirm: "确认",
-                // Tooltips & Alerts
                 ttLock: "锁定窗口",
                 ttUnlock: "解锁窗口",
                 ttDrag: "拖动窗口",
@@ -516,6 +548,7 @@
                 sdkFailedTitle: "Live2D SDK Load Failed",
                 sdkFailedDesc: "Local SDK missing and CDN fallback failed.<br>Please manually place the <strong>Live2D SDK</strong> into the <code>sap-live2d</code> extension folder.",
                 btnDownloadSdk: "Official Download",
+                btnCloseExtension: "Close Extension",
                 switchingModel: "Switching model...",
                 licenseTitle: "License",
                 licenseResource: "Resource",
@@ -523,7 +556,6 @@
                 licenseLink: "Link",
                 mustRead: "⚠️ Must-read before use",
                 btnConfirm: "OK",
-                // Tooltips & Alerts
                 ttLock: "Lock Window",
                 ttUnlock: "Unlock Window",
                 ttDrag: "Drag Window",
@@ -547,7 +579,6 @@
 
         let currentLang = localStorage.getItem('live2d_lang') || 'zh';
 
-        // 语言更新逻辑
         function updateLanguageUI() {
             document.querySelectorAll('[data-i18n]').forEach(el => {
                 const key = el.getAttribute('data-i18n');
@@ -563,14 +594,11 @@
             });
         }
 
-        // 切换语言
         function toggleLanguage() {
             currentLang = currentLang === 'zh' ? 'en' : 'zh';
             localStorage.setItem('live2d_lang', currentLang);
             updateLanguageUI();
         }
-
-        // ============================
 
         function loadScript(localSrc, cdnSrc) {
             return new Promise((resolve, reject) => {
@@ -593,13 +621,14 @@
         }
 
         async function bootstrapLive2D() {
-            updateLanguageUI(); // 初始化语言
+            updateLanguageUI();
             try {
                 await loadScript('live2d.min.js', 'https://cdn.jsdelivr.net/gh/dylanNew/live2d/webgl/Live2D/lib/live2d.min.js');
                 await loadScript('live2dcubismcore.min.js', 'https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js');
                 await loadScript('index.min.js', 'https://cdn.jsdelivr.net/npm/pixi-live2d-display/dist/index.min.js');
                 setTimeout(init, 500);
             } catch (error) {
+                // 如果出现错误，让弹窗显示出来
                 document.getElementById('overlay').style.display = 'block';
                 document.getElementById('sdk-error-notice').style.display = 'block';
             }
@@ -797,7 +826,7 @@
 
         function getModelCapabilities() {
             if (!model || !model.internalModel) return { expressions: [], motions: [] };
-            const expressions = [], motions =[];
+            const expressions =[], motions =[];
             if (model.internalModel.settings && model.internalModel.settings.expressions) {
                 model.internalModel.settings.expressions.forEach(exp => expressions.push(exp.Name || exp.name));
             } else if (model.internalModel.motionManager && model.internalModel.motionManager.expressionManager && model.internalModel.motionManager.expressionManager.definitions) {
@@ -806,7 +835,7 @@
             if (model.internalModel.settings && model.internalModel.settings.motions) {
                 Object.keys(model.internalModel.settings.motions).forEach(groupName => motions.push(groupName));
             }
-            return { expressions: [...new Set(expressions)], motions: [...new Set(motions)] };
+            return { expressions: [...new Set(expressions)], motions:[...new Set(motions)] };
         }
 
         function updateSystemPromptWithModelInfo() {
@@ -1202,7 +1231,7 @@
             }
 
             if (btns.prompt) { addHover(btns.prompt, 'ttPrompt'); btns.prompt.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); updateSystemPromptWithModelInfo(); }); }
-            if (btns.close) { addHover(btns.close, 'ttClose'); btns.close.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); sendToMainApp('trigger_close_extension', {}); setTimeout(() => window.close(), 150); }); }
+            if (btns.close) { addHover(btns.close, 'ttClose'); btns.close.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); closeExtension(); }); }
 
             let tOut, isHov = false;
             const showCP = () => { clearTimeout(tOut); cp.style.opacity = '1'; cp.style.visibility = 'visible'; cp.style.transform = 'translateX(0)'; cp.style.pointerEvents = 'auto'; };
