@@ -481,6 +481,7 @@
         <div id="prompt-handle" class="control-button"><i class="fas fa-magic"></i></div>
         <!-- 语音开启按钮 -->
         <div id="voice-handle" class="control-button"><i class="fas fa-microphone"></i></div>
+        <div id="text-handle" class="control-button"><i class="fas fa-keyboard"></i></div>
         <div id="subtitle-handle" class="control-button"><i class="fas fa-closed-captioning"></i></div>
         <div id="info-handle" class="control-button"><i class="fas fa-info"></i></div>
         <div id="refresh-handle" class="control-button"><i class="fas fa-redo-alt"></i></div>
@@ -570,6 +571,8 @@
                 ttPrompt: "表情动作控制",
                 ttVoiceOn: "开启语音输入",
                 ttVoiceOff: "关闭语音输入",
+                ttTextOn: "开启文字输入",      // 新增
+                ttTextOff: "关闭文字输入",     // 新增
                 ttSubOn: "关闭字幕",
                 ttSubOff: "开启字幕",
                 ttInfo: "版权信息",
@@ -611,6 +614,8 @@
                 ttPrompt: "Expression & motion control",
                 ttVoiceOn: "Enable Voice Input",
                 ttVoiceOff: "Disable Voice Input",
+                ttTextOn: "Enable Text Input",       // 新增
+                ttTextOff: "Disable Text Input",     // 新增
                 ttSubOn: "Hide Subtitle",
                 ttSubOff: "Show Subtitle",
                 ttInfo: "License Info",
@@ -710,7 +715,9 @@
         let pttAudioChunks = [];
         let isPttActive = false;
         let pttVisible = false;
-
+        let isMouseLocked = false;      // 改为全局变量
+        let textInputVisible = false;   // 文字输入框是否可见
+        let isTextInputReady = false;   // 防止重复初始化
         function isElectron() {
             if (typeof window !== 'undefined' && typeof window.process === 'object' && window.process.type === 'renderer') return true;
             if (typeof process !== 'undefined' && typeof process.versions === 'object' && !!process.versions.electron) return true;
@@ -1045,8 +1052,125 @@
             floatingBtn.addEventListener('pointerup', stopRecording);
             floatingBtn.addEventListener('pointercancel', stopRecording);
             window.addEventListener('pointerup', stopRecording);
+            floatingBtn.addEventListener('mouseenter', () => {
+                if (isMouseLocked && window.electronAPI) window.electronAPI.setIgnoreMouseEvents(false);
+            });
+            floatingBtn.addEventListener('mouseleave', () => {
+                if (isMouseLocked && window.electronAPI) window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
+            });
         }
 
+function setupTextInteraction() {
+            if (isTextInputReady) return;
+            isTextInputReady = true;
+
+            const textInputContainer = document.createElement('div');
+            textInputContainer.id = 'text-input-container';
+            textInputContainer.style.cssText = `
+                position: fixed;
+                bottom: 20px; /* 错开在橙色 PTT 按钮下方 */
+                left: 50%;
+                transform: translateX(-50%) translateY(20px);
+                display: flex;
+                align-items: center;
+                background: rgba(0, 0, 0, 0.6);
+                backdrop-filter: blur(10px);
+                padding: 8px 16px;
+                border-radius: 24px;
+                z-index: 10001;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                width: 80%;
+                max-width: 500px;
+                transition: opacity 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                opacity: 0;
+                pointer-events: none;
+            `;
+
+            const textInputField = document.createElement('input');
+            textInputField.id = 'text-input-field';
+            textInputField.type = 'text';
+            textInputField.placeholder = '输入文字与模型对话...';
+            textInputField.style.cssText = `
+                flex: 1;
+                background: transparent;
+                border: none;
+                color: white;
+                font-size: 15px;
+                outline: none;
+                padding: 8px 4px;
+            `;
+
+            ['keydown', 'keyup', 'keypress'].forEach(evt => {
+                textInputField.addEventListener(evt, (e) => {
+                    e.stopPropagation();
+                    if (evt === 'keydown' && e.key === 'Enter') {
+                        e.preventDefault();
+                        sendTextInputMessage();
+                    }
+                });
+            });
+
+            const textSendBtn = document.createElement('button');
+            textSendBtn.id = 'text-send-btn';
+            textSendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i>';
+            textSendBtn.style.cssText = `
+                background: #ff6b35;
+                color: white;
+                border: none;
+                border-radius: 50%;
+                width: 32px;
+                height: 32px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                margin-left: 8px;
+                transition: transform 0.2s, background 0.2s;
+                outline: none;
+            `;
+            textSendBtn.addEventListener('mouseenter', () => { textSendBtn.style.transform = 'scale(1.1)'; textSendBtn.style.background = '#e65c2b'; });
+            textSendBtn.addEventListener('mouseleave', () => { textSendBtn.style.transform = 'scale(1)'; textSendBtn.style.background = '#ff6b35'; });
+            textSendBtn.addEventListener('click', sendTextInputMessage);
+
+            textInputContainer.appendChild(textInputField);
+            textInputContainer.appendChild(textSendBtn);
+            document.body.appendChild(textInputContainer);
+
+            function sendTextInputMessage() {
+                const text = textInputField.value.trim();
+                if (!text) return;
+                if (mainWsConnected && mainWebSocket) {
+                    sendToMainApp('set_user_input', { text: text });
+                    setTimeout(() => {
+                        sendToMainApp('trigger_send_message', {});
+                    }, 300);
+                    textInputField.value = ''; 
+                }
+            }
+            
+            textInputContainer.addEventListener('mousedown', (e) => e.stopPropagation());
+            textInputContainer.addEventListener('touchstart', (e) => e.stopPropagation(), {passive: true});
+
+            // ================== 锁定模式下解除鼠标穿透 ==================
+            textInputContainer.addEventListener('mouseenter', () => {
+                if (isMouseLocked && window.electronAPI) window.electronAPI.setIgnoreMouseEvents(false);
+            });
+            textInputContainer.addEventListener('mouseleave', () => {
+                if (isMouseLocked && window.electronAPI && document.activeElement !== textInputField) {
+                    window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
+                }
+            });
+            textInputField.addEventListener('blur', () => {
+                if (isMouseLocked && window.electronAPI && !textInputContainer.matches(':hover')) {
+                    window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
+                }
+            });
+            textInputField.addEventListener('focus', () => {
+                if (isMouseLocked && window.electronAPI) window.electronAPI.setIgnoreMouseEvents(false);
+            });
+        }
+
+        
         async function init() {
             try {
                 try {
@@ -1068,6 +1192,7 @@
                 if(currentModelUrl) switchModel(currentModelUrl);
                 initControlPanel();
                 setupPttInteraction(); // 增加：初始化 PTT 按钮交互
+                setupTextInteraction();
                 setTimeout(showLicenseModal, 500);
                 initSubtitleElement();
                 initModelInteraction();
@@ -1390,21 +1515,36 @@
                 info: document.getElementById('info-handle'), 
                 prompt: document.getElementById('prompt-handle'), 
                 voice: document.getElementById('voice-handle'), // 语音开关按钮
+                text: document.getElementById('text-handle'), 
                 sub: document.getElementById('subtitle-handle'), 
                 ref: document.getElementById('refresh-handle'), 
                 close: document.getElementById('close-handle') 
             };
-            let isLocked = false;
 
             const showTT = (btn, keyFn) => { if (!btn) return; const r = btn.getBoundingClientRect(); tt.textContent = typeof keyFn === 'function' ? keyFn() : i18nDict[currentLang][keyFn]; ttc.style.left = `${r.left - tt.offsetWidth - 15}px`; ttc.style.top = `${r.top + (r.height - tt.offsetHeight) / 2}px`; ttc.style.opacity = '1'; ttc.style.transform = 'translateX(0)'; };
             const hideTT = () => { ttc.style.opacity = '0'; ttc.style.transform = 'translateX(-10px)'; };
             const addHover = (btn, keyFn) => { if(!btn)return; btn.addEventListener('mouseenter', () => showTT(btn, keyFn)); btn.addEventListener('mouseleave', hideTT); };
 
             if (btns.lock) {
-                btns.lock.style.color = '#28a745'; addHover(btns.lock, () => i18nDict[currentLang][isLocked ? 'ttUnlock' : 'ttLock']);
-                btns.lock.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); isLocked = !isLocked; btns.lock.querySelector('i').className = isLocked ? 'fas fa-lock' : 'fas fa-lock-open'; btns.lock.style.color = isLocked ? '#dc3545' : '#28a745'; Object.values(btns).forEach(b => { if(b && b !== btns.lock) { b.style.opacity = isLocked ? '0' : '1'; b.style.pointerEvents = isLocked ? 'none' : 'auto'; b.style.visibility = isLocked ? 'hidden' : 'visible'; } }); if(isElectron() && window.electronAPI) window.electronAPI.setIgnoreMouseEvents(isLocked, {forward: isLocked}); showTT(btns.lock, () => i18nDict[currentLang][isLocked ? 'ttUnlock' : 'ttLock']); });
-                btns.lock.addEventListener('mouseenter', () => { if(isLocked && isElectron() && window.electronAPI) window.electronAPI.setIgnoreMouseEvents(false); });
-                btns.lock.addEventListener('mouseleave', () => { if(isLocked && isElectron() && window.electronAPI) window.electronAPI.setIgnoreMouseEvents(true, {forward: true}); });
+                // 全部将 isLocked 替换为 isMouseLocked
+                btns.lock.style.color = '#28a745'; addHover(btns.lock, () => i18nDict[currentLang][isMouseLocked ? 'ttUnlock' : 'ttLock']);
+                btns.lock.addEventListener('click', e => { 
+                    e.preventDefault(); e.stopPropagation(); 
+                    isMouseLocked = !isMouseLocked; 
+                    btns.lock.querySelector('i').className = isMouseLocked ? 'fas fa-lock' : 'fas fa-lock-open'; 
+                    btns.lock.style.color = isMouseLocked ? '#dc3545' : '#28a745'; 
+                    Object.values(btns).forEach(b => { 
+                        if(b && b !== btns.lock) { 
+                            b.style.opacity = isMouseLocked ? '0' : '1'; 
+                            b.style.pointerEvents = isMouseLocked ? 'none' : 'auto'; 
+                            b.style.visibility = isMouseLocked ? 'hidden' : 'visible'; 
+                        } 
+                    }); 
+                    if(isElectron() && window.electronAPI) window.electronAPI.setIgnoreMouseEvents(isMouseLocked, {forward: isMouseLocked}); 
+                    showTT(btns.lock, () => i18nDict[currentLang][isMouseLocked ? 'ttUnlock' : 'ttLock']); 
+                });
+                btns.lock.addEventListener('mouseenter', () => { if(isMouseLocked && isElectron() && window.electronAPI) window.electronAPI.setIgnoreMouseEvents(false); });
+                btns.lock.addEventListener('mouseleave', () => { if(isMouseLocked && isElectron() && window.electronAPI) window.electronAPI.setIgnoreMouseEvents(true, {forward: true}); });
             }
 
             addHover(btns.drag, 'ttDrag');
@@ -1439,6 +1579,32 @@
                 });
             }
 
+            if (btns.text) {
+                addHover(btns.text, () => i18nDict[currentLang][textInputVisible ? 'ttTextOff' : 'ttTextOn']);
+                btns.text.addEventListener('click', e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    textInputVisible = !textInputVisible;
+                    const container = document.getElementById('text-input-container');
+
+                    if (textInputVisible) {
+                        container.style.opacity = '1';
+                        container.style.pointerEvents = 'auto';
+                        container.style.transform = 'translateX(-50%) translateY(0)';
+                        btns.text.style.color = '#007bff'; 
+                        setTimeout(() => document.getElementById('text-input-field').focus(), 300);
+                    } else {
+                        container.style.opacity = '0';
+                        container.style.pointerEvents = 'none';
+                        container.style.transform = 'translateX(-50%) translateY(20px)';
+                        btns.text.style.color = '#333'; 
+                        document.getElementById('text-input-field').blur();
+                    }
+                    showTT(btns.text, () => i18nDict[currentLang][textInputVisible ? 'ttTextOff' : 'ttTextOn']);
+                });
+            }
+
+
             if (btns.sub) {
                 btns.sub.style.color = isSubtitleEnabled ? '#28a745' : '#dc3545';
                 addHover(btns.sub, () => i18nDict[currentLang][isSubtitleEnabled ? 'ttSubOn' : 'ttSubOff']);
@@ -1462,14 +1628,14 @@
 
             let tOut, isHov = false;
             const showCP = () => { clearTimeout(tOut); cp.style.opacity = '1'; cp.style.visibility = 'visible'; cp.style.transform = 'translateX(0)'; cp.style.pointerEvents = 'auto'; };
-            const hideCP = () => { if(!isHov && !isLocked){ cp.style.opacity = '0'; cp.style.visibility = 'hidden'; cp.style.transform = 'translateX(20px)'; cp.style.pointerEvents = 'none'; } };
+            const hideCP = () => { if(!isHov && !isMouseLocked){ cp.style.opacity = '0'; cp.style.visibility = 'hidden'; cp.style.transform = 'translateX(20px)'; cp.style.pointerEvents = 'none'; } };
             const sched = () => { clearTimeout(tOut); tOut = setTimeout(hideCP, 2000); };
             
             document.body.addEventListener('mouseenter', showCP);
             document.body.addEventListener('mousemove', () => { showCP(); sched(); });
             document.body.addEventListener('mouseleave', () => { if(!isHov) sched(); });
-            cp.addEventListener('mouseenter', () => { if(!isLocked) window.electronAPI?.setIgnoreMouseEvents(false); isHov = true; showCP(); });
-            cp.addEventListener('mouseleave', () => { isHov = false; sched(); if(isLocked && isElectron() && window.electronAPI) window.electronAPI.setIgnoreMouseEvents(true, {forward: true}); });
+            cp.addEventListener('mouseenter', () => { if(!isMouseLocked) window.electronAPI?.setIgnoreMouseEvents(false); isHov = true; showCP(); });
+            cp.addEventListener('mouseleave', () => { isHov = false; sched(); if(isMouseLocked && isElectron() && window.electronAPI) window.electronAPI.setIgnoreMouseEvents(true, {forward: true}); });
             showCP(); sched();
         }
 
