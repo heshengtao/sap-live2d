@@ -584,7 +584,10 @@
                 alertDelete: "确定要删除模型 \"{name}\" 吗？",
                 alertRefresh: "是否要清理所有缓存并重置模型设置？\n(这将删除你手动添加的所有自定义模型路径)",
                 unknownModel: "未知模型",
-                fallbackModel: "兜底模型(Hiyori)"
+                fallbackModel: "兜底模型(Hiyori)",
+                ttPromptOn: "开启表情动作控制",
+                ttPromptOff: "关闭表情动作控制",
+
             },
             en: {
                 modelSelectorTitle: "Choose model",
@@ -627,7 +630,9 @@
                 alertDelete: "Are you sure you want to delete model \"{name}\"?",
                 alertRefresh: "Are you sure you want to clear all cache and reset settings?\n(This will delete all custom model paths you manually added)",
                 unknownModel: "Unknown Model",
-                fallbackModel: "Fallback(Hiyori)"
+                fallbackModel: "Fallback(Hiyori)",
+                ttPromptOn: "Enable Expression & Motion Control",
+                ttPromptOff: "Disable Expression & Motion Control",
             }
         };
 
@@ -718,6 +723,7 @@
         let isMouseLocked = false;      // 改为全局变量
         let textInputVisible = false;   // 文字输入框是否可见
         let isTextInputReady = false;   // 防止重复初始化
+        let promptEnabled = false;  // 表情动作控制开关状态
         function isElectron() {
             if (typeof window !== 'undefined' && typeof window.process === 'object' && window.process.type === 'renderer') return true;
             if (typeof process !== 'undefined' && typeof process.versions === 'object' && !!process.versions.electron) return true;
@@ -903,16 +909,13 @@
         function updateSystemPromptWithModelInfo() {
             if (!model) return;
             const caps = getModelCapabilities();
-            const allTags =[...caps.expressions.map(e => `<${e}>`), ...caps.motions.map(m => `<${m}>`)];
+            const allTags = [...caps.expressions.map(e => `<${e}>`), ...caps.motions.map(m => `<${m}>`)];
             if (allTags.length === 0) return;
-            
-            const promptText = `\n\n你可以使用以下表情和动作：${allTags.join(' ')}\n\n你可以在句子开头插入表情符号以驱动人物的当前表情，注意！你需要将表情符号放到句子的开头，才能在说这句话的时候同步做表情，例如：<${caps.expressions[0] || 'happy'}>你好哇。<${caps.motions[0] || 'wave'}>哇！\n\n一定要把表情符号跟要做表情的句子放在同一行，如果中间有换行符，表情将不会生效。`;
+
+            const promptText = `\n\n你可以使用以下表情和动作：${allTags.join(' ')}\n\n你可以在句子开头插入表情符号以驱动人物的当前表情...`;
 
             if (mainWsConnected && mainWebSocket) {
                 sendToMainApp('set_system_prompt', { text: promptText });
-                const btn = document.getElementById('prompt-handle');
-                const originalColor = btn.style.color; btn.style.color = '#28a745';
-                setTimeout(() => btn.style.color = originalColor, 1000);
             }
         }
 
@@ -1696,7 +1699,40 @@ function setupTextInteraction() {
                 });
             }
 
-            if (btns.prompt) { addHover(btns.prompt, 'ttPrompt'); btns.prompt.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); updateSystemPromptWithModelInfo(); }); }
+            // 初始化按钮样式（默认关闭）
+            if (btns.prompt) {
+                btns.prompt.style.color = '#333';  // 关闭时默认色
+                addHover(btns.prompt, () => {
+                    if (promptEnabled) {
+                        return i18nDict[currentLang].ttPromptOff || '关闭表情动作控制';
+                    } else {
+                        return i18nDict[currentLang].ttPromptOn || '开启表情动作控制';
+                    }
+                });
+                btns.prompt.addEventListener('click', e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    promptEnabled = !promptEnabled;
+                    if (promptEnabled) {
+                        // 开启：注入提示词
+                        updateSystemPromptWithModelInfo();
+                        btns.prompt.style.color = '#28a745';        // 绿色高亮
+                        btns.prompt.querySelector('i').className = 'fas fa-magic';  // 可保留原图标
+                    } else {
+                        // 关闭：移除提示词
+                        sendToMainApp('remove_system_prompt', {});
+                        btns.prompt.style.color = '#333';           // 恢复默认色
+                    }
+                    // 刷新 tooltip
+                    showTT(btns.prompt, () => {
+                        if (promptEnabled) {
+                            return i18nDict[currentLang].ttPromptOff || '关闭表情动作控制';
+                        } else {
+                            return i18nDict[currentLang].ttPromptOn || '开启表情动作控制';
+                        }
+                    });
+                });
+            }
             if (btns.close) { addHover(btns.close, 'ttClose'); btns.close.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); closeExtension(); }); }
 
             let tOut, isHov = false;
