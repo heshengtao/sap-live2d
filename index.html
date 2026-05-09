@@ -384,6 +384,69 @@
             0% { transform: scale(1); opacity: 0.5; }
             100% { transform: scale(2.2); opacity: 0; }
         }
+        /* 闲置动作选择模态框样式 */
+        #idle-selector {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            max-width: 400px;
+            max-height: 60vh;
+            display: flex;
+            flex-direction: column;
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            z-index: 10001;
+            padding: 20px;
+            display: none;
+            backdrop-filter: blur(10px);
+        }
+        #idle-selector[style*="display: block"] {
+            display: flex !important;
+        }
+        .idle-selector-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 10px;
+            flex-shrink: 0;
+        }
+        .idle-selector-header h2 {
+            margin: 0;
+            font-size: 18px;
+            color: #333;
+        }
+        .idle-selector-close {
+            cursor: pointer;
+            font-size: 20px;
+            color: #555;
+        }
+        .idle-selector-body {
+            flex: 1;
+            overflow-y: auto;
+            min-height: 100px;
+            margin-bottom: 15px;
+            scrollbar-width: thin;
+            scrollbar-color: #ccc transparent;
+        }
+        .idle-option {
+            padding: 8px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            margin-bottom: 2px;
+        }
+        .idle-option:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+        .idle-option.selected {
+            background-color: rgba(0, 123, 255, 0.1);
+            border-left: 3px solid #007bff;
+        }
     </style>
 </head>
 <body>
@@ -482,8 +545,8 @@
         <!-- 语音开启按钮 -->
         <div id="voice-handle" class="control-button"><i class="fas fa-microphone"></i></div>
         <div id="text-handle" class="control-button"><i class="fas fa-keyboard"></i></div>
+        <div id="idle-handle" class="control-button"><i class="fas fa-clock"></i></div>
         <div id="subtitle-handle" class="control-button"><i class="fas fa-closed-captioning"></i></div>
-        <div id="info-handle" class="control-button"><i class="fas fa-info"></i></div>
         <div id="refresh-handle" class="control-button"><i class="fas fa-redo-alt"></i></div>
         <div id="close-handle" class="control-button"><i class="fas fa-times"></i></div>
     </div>
@@ -512,6 +575,15 @@
             </div>
             <button class="btn btn-primary" id="apply-model-selection" data-i18n="btnApply">应用</button>
         </div>
+    </div>
+
+    <!-- 闲置动作组选择对话框 -->
+    <div id="idle-selector">
+        <div class="idle-selector-header">
+            <h2 data-i18n="idleSelectorTitle">设置闲置动作</h2>
+            <div class="idle-selector-close">×</div>
+        </div>
+        <div class="idle-selector-body" id="idle-options-container"></div>
     </div>
 
     <!-- 遮罩层 -->
@@ -587,6 +659,9 @@
                 fallbackModel: "兜底模型(Hiyori)",
                 ttPromptOn: "开启表情动作控制",
                 ttPromptOff: "关闭表情动作控制",
+                idleSelectorTitle: "设置闲置动作",
+                idleNoneOption: "无（禁用自动动作）",
+                ttIdle: "设置闲置动作组",
 
             },
             en: {
@@ -633,6 +708,9 @@
                 fallbackModel: "Fallback(Hiyori)",
                 ttPromptOn: "Enable Expression & Motion Control",
                 ttPromptOff: "Disable Expression & Motion Control",
+                idleSelectorTitle: "Set Idle Motion",
+                idleNoneOption: "None (Disable idle motion)",
+                ttIdle: "Set Idle Motion Group",
             }
         };
 
@@ -724,6 +802,62 @@
         let textInputVisible = false;   // 文字输入框是否可见
         let isTextInputReady = false;   // 防止重复初始化
         let promptEnabled = false;  // 表情动作控制开关状态
+        let currentIdleGroup = localStorage.getItem('live2d_idle_group') || '__none__';
+
+        function updateIdleGroup(groupName) {
+            if (!model || !model.internalModel || !model.internalModel.motionManager) return;
+            const mm = model.internalModel.motionManager;
+            mm.groups.idle = groupName;
+            mm.state.reset();          // 清除预定动作
+            mm.stopAllMotions();       // 停止正在播放的动作
+            localStorage.setItem('live2d_idle_group', groupName);
+            currentIdleGroup = groupName;
+        }
+
+        function showIdleSelector() {
+            if (!model || !model.internalModel || !model.internalModel.motionManager) {
+                alert('模型尚未加载完成');
+                return;
+            }
+            
+            const mm = model.internalModel.motionManager;
+            const groups = Object.keys(mm.definitions);   // 所有可用动作组
+            const container = document.getElementById('idle-options-container');
+            container.innerHTML = '';
+            
+            // 添加"无"选项
+            const noneOption = document.createElement('div');
+            noneOption.className = 'idle-option';
+            if (currentIdleGroup === '__none__') noneOption.classList.add('selected');
+            noneOption.textContent = i18nDict[currentLang].idleNoneOption;
+            noneOption.onclick = () => {
+                updateIdleGroup('__none__');
+                showIdleSelector();   // 刷新高亮
+            };
+            container.appendChild(noneOption);
+            
+            // 添加每个动作组
+            groups.forEach(group => {
+                const option = document.createElement('div');
+                option.className = 'idle-option';
+                if (currentIdleGroup === group) option.classList.add('selected');
+                option.textContent = group;
+                option.onclick = () => {
+                    updateIdleGroup(group);
+                    showIdleSelector();
+                };
+                container.appendChild(option);
+            });
+            
+            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('idle-selector').style.display = 'block';
+        }
+
+        function hideIdleSelector() {
+            document.getElementById('overlay').style.display = 'none';
+            document.getElementById('idle-selector').style.display = 'none';
+        }
+
         function isElectron() {
             if (typeof window !== 'undefined' && typeof window.process === 'object' && window.process.type === 'renderer') return true;
             if (typeof process !== 'undefined' && typeof process.versions === 'object' && !!process.versions.electron) return true;
@@ -855,10 +989,11 @@
             
             try {
                 if (model) { app.stage.removeChild(model); model = null; }
-                model = await PIXI.live2d.Live2DModel.from(modelUrl);
+model = await PIXI.live2d.Live2DModel.from(modelUrl);
                 model.anchor.set(0.5, 0.5); model.position.set(app.screen.width / 2, app.screen.height / 2); model.scale.set(modelScale);
                 modelX = app.screen.width / 2; modelY = app.screen.height / 2;
                 app.stage.addChild(model);
+                updateIdleGroup(currentIdleGroup);
                 currentModelUrl = modelUrl; saveModelList(); startBasicAnimations();
                 
                 setTimeout(() => {
@@ -1218,7 +1353,7 @@ function setupTextInteraction() {
 
         function initModelSelector() {
             document.querySelector('.model-selector-close').addEventListener('click', hideModelSelector);
-            document.getElementById('overlay').addEventListener('click', function(e) { if (e.target === this) hideModelSelector(); });
+            document.getElementById('overlay').addEventListener('click', function(e) { if (e.target === this) { hideModelSelector(); hideIdleSelector(); } });
             
             const handleAddModel = () => {
                 const cleanUrl = normalizeModelUrl(document.getElementById('custom-model-url').value);
@@ -1588,11 +1723,12 @@ function setupTextInteraction() {
                 lock: document.getElementById('lock-handle'), 
                 lang: document.getElementById('lang-handle'), 
                 model: document.getElementById('model-handle'), 
-                info: document.getElementById('info-handle'), 
+                // info: document.getElementById('info-handle'), 
                 prompt: document.getElementById('prompt-handle'), 
                 voice: document.getElementById('voice-handle'), // 语音开关按钮
                 text: document.getElementById('text-handle'), 
                 sub: document.getElementById('subtitle-handle'), 
+                idle: document.getElementById('idle-handle'),
                 ref: document.getElementById('refresh-handle'), 
                 close: document.getElementById('close-handle') 
             };
@@ -1631,7 +1767,14 @@ function setupTextInteraction() {
             }
 
             if (btns.model) { addHover(btns.model, 'ttModel'); btns.model.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); showModelSelector(); }); }
-            if (btns.info) { addHover(btns.info, 'ttInfo'); btns.info.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); showLicenseModal(); }); }
+            if (btns.idle) {
+                addHover(btns.idle, 'ttIdle');
+                btns.idle.addEventListener('click', e => {
+                    e.preventDefault(); e.stopPropagation();
+                    showIdleSelector();
+                });
+            }
+            // if (btns.info) { addHover(btns.info, 'ttInfo'); btns.info.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); showLicenseModal(); }); }
             
             // 语音按钮控制逻辑
             if (btns.voice) {
@@ -1746,6 +1889,9 @@ function setupTextInteraction() {
             cp.addEventListener('mouseenter', () => { if(!isMouseLocked) window.electronAPI?.setIgnoreMouseEvents(false); isHov = true; showCP(); });
             cp.addEventListener('mouseleave', () => { isHov = false; sched(); if(isMouseLocked && isElectron() && window.electronAPI) window.electronAPI.setIgnoreMouseEvents(true, {forward: true}); });
             showCP(); sched();
+
+            // 关闭闲置动作选择器的事件绑定
+            document.querySelector('#idle-selector .idle-selector-close').addEventListener('click', hideIdleSelector);
         }
 
         window.addEventListener('load', bootstrapLive2D);
