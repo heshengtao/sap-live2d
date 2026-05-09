@@ -1737,7 +1737,7 @@ function setupTextInteraction() {
 
             let tOut, isHov = false;
             const showCP = () => { clearTimeout(tOut); cp.style.opacity = '1'; cp.style.visibility = 'visible'; cp.style.transform = 'translateX(0)'; cp.style.pointerEvents = 'auto'; };
-            const hideCP = () => { if(!isHov && !isMouseLocked){ cp.style.opacity = '0'; cp.style.visibility = 'hidden'; cp.style.transform = 'translateX(20px)'; cp.style.pointerEvents = 'none'; } };
+            const hideCP = () => { if(!isHov){ cp.style.opacity = '0'; cp.style.visibility = 'hidden'; cp.style.transform = 'translateX(20px)'; cp.style.pointerEvents = 'none'; } };
             const sched = () => { clearTimeout(tOut); tOut = setTimeout(hideCP, 2000); };
             
             document.body.addEventListener('mouseenter', showCP);
