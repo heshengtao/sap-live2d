@@ -1290,9 +1290,72 @@ function setupTextInteraction() {
         function initWebSocket() {
             const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/vrm`;
             ttsWebSocket = new WebSocket(wsUrl);
-            ttsWebSocket.onopen = () => { wsConnected = true; sendToMain('vrmConnected', { status: 'ready' }); };
-            ttsWebSocket.onmessage = (e) => { try { handleTTSMessage(JSON.parse(e.data)); } catch (err) {} };
-            ttsWebSocket.onclose = () => { wsConnected = false; setTimeout(() => { if (!wsConnected) initWebSocket(); }, 3000); };
+            ttsWebSocket.binaryType = 'arraybuffer';  // 关键
+
+            ttsWebSocket.onopen = () => {
+                wsConnected = true;
+                sendToMain('vrmConnected', { status: 'ready' });
+            };
+
+            ttsWebSocket.onmessage = async (e) => {
+                // 1. 处理二进制（音频流 / 音频块）
+                if (e.data instanceof ArrayBuffer) {
+                    const buffer = e.data;
+                    const view = new DataView(buffer);
+                    const jsonLen = view.getUint32(0, true);  // 小端读取前4字节长度
+                    const metadataBytes = new Uint8Array(buffer, 4, jsonLen);
+                    const audioDataBytes = new Uint8Array(buffer, 4 + jsonLen);
+
+                    let metadata;
+                    try {
+                        metadata = JSON.parse(new TextDecoder().decode(metadataBytes));
+                    } catch (err) {
+                        console.error('Binary metadata parse error:', err);
+                        return;
+                    }
+
+                    // 根据类型分发（完全照搬 vrm.js 逻辑）
+                    if (metadata.type === 'omni_chunk') {
+                        // 流式音频：复用已有的 processOmniStreaming
+                        isOmniMode = true;
+                        isAudioStreaming = true;
+                        if (metadata.text) fullTargetText = metadata.text;
+                        
+                        const b64 = btoa(String.fromCharCode(...audioDataBytes));
+                        processOmniStreaming({ audioData: b64, sampleRate: metadata.sampleRate });
+                        startTypewriterLoop();
+
+                    } else if (metadata.type === 'audio_chunk') {
+                        // 块式音频：创建 Blob URL 并加入排序队列
+                        const mime = metadata.mimeType || 'audio/wav';
+                        const blob = new Blob([audioDataBytes], { type: mime });
+                        const audioUrl = URL.createObjectURL(blob);
+                        
+                        // 你需要一个排序函数（名称可自定义，但逻辑必须包含）
+                        addToVrmSortBuffer({
+                            audioDataUrl: audioUrl,
+                            chunkIndex: metadata.chunkIndex,
+                            expressions: metadata.expressions || [],
+                            text: metadata.text || ''
+                        });
+                    }
+                    return; // 处理完二进制就直接返回，不再走文本逻辑
+                }
+
+                // 2. 处理文本 JSON（指令：ttsStarted / stopSpeaking 等）
+                try {
+                    const message = JSON.parse(e.data);
+                    handleTTSMessage(message);
+                } catch (err) {
+                    console.error('TTS message parse error:', err);
+                }
+            };
+
+            ttsWebSocket.onclose = () => {
+                wsConnected = false;
+                setTimeout(() => { if (!wsConnected) initWebSocket(); }, 3000);
+            };
+            ttsWebSocket.onerror = (err) => console.error('WS error', err);
         }
 
         function initMainWebSocket() {
@@ -1314,6 +1377,11 @@ function setupTextInteraction() {
                     ttsSessionId++; ttsQueue =[]; isPlayingTTS = false;
                     if (currentTTSAudioElement) { currentTTSAudioElement.pause(); currentTTSAudioElement.removeAttribute('src'); currentTTSAudioElement = null; }
                     model?.stopSpeaking?.(); stopTypewriterLoop(); stopAllChunkAnimations(); clearSubtitle();
+                    
+                    vrmAudioQueue = [];
+                    vrmReceiveBuffer.clear();
+                    nextExpectedIndex = 0;
+                    isVrmPlaying = false;
                     break;
                 case 'omniStreaming':
                     isOmniMode = true; isAudioStreaming = true;
@@ -1324,7 +1392,12 @@ function setupTextInteraction() {
                 case 'startSpeaking':
                     isOmniMode = false; ttsQueue.push(data); processTTSQueue(); break;
                 case 'stopSpeaking':
-                    isOmniMode = false; isAudioStreaming = false; stopTypewriterLoop(); break;
+                    isOmniMode = false; isAudioStreaming = false; stopTypewriterLoop(); 
+                    vrmAudioQueue = [];
+                    vrmReceiveBuffer.clear();
+                    nextExpectedIndex = 0;
+                    isVrmPlaying = false;
+                    break;
                 case 'allChunksCompleted':
                     isOmniMode = false; isAudioStreaming = false; 
                     if (currentVisibleCount >= fullTargetText.length && !isPlayingTTS) finalizeSpeech(false);
@@ -1640,6 +1713,48 @@ function setupTextInteraction() {
         }
 
         window.addEventListener('load', bootstrapLive2D);
+
+        let vrmAudioQueue = [];
+        let vrmReceiveBuffer = new Map();
+        let nextExpectedIndex = 0;
+        let isVrmPlaying = false;
+
+        function addToVrmSortBuffer(task) {
+            vrmReceiveBuffer.set(task.chunkIndex, task);
+            // 按序取出
+            while (vrmReceiveBuffer.has(nextExpectedIndex)) {
+                const nextTask = vrmReceiveBuffer.get(nextExpectedIndex);
+                vrmAudioQueue.push(nextTask);
+                vrmReceiveBuffer.delete(nextExpectedIndex);
+                nextExpectedIndex++;
+            }
+            if (!isVrmPlaying && vrmAudioQueue.length > 0) {
+                processVrmQueue();
+            }
+        }
+
+        async function processVrmQueue() {
+            if (vrmAudioQueue.length === 0) {
+                isVrmPlaying = false;
+                return;
+            }
+            isVrmPlaying = true;
+            const task = vrmAudioQueue.shift();
+
+            // 字幕
+            if (task.text) updateSubtitle(task.text, task.chunkIndex);
+
+            // 播放音频（走已有的 LipSync 函数）
+            await startLipSyncForChunk(task, ttsSessionId);
+
+            // 释放 Blob
+            if (task.audioDataUrl) URL.revokeObjectURL(task.audioDataUrl);
+            
+            // 播放下一个
+            processVrmQueue();
+        }
+
+
     </script>
 </body>
 </html>
