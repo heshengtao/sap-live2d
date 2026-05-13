@@ -7,6 +7,37 @@
     <!-- 添加 Font Awesome 图标库 -->
     <link rel="stylesheet" href="../../fontawesome/css/all.min.css">
     <style>
+                #motion-manage-list .motion-group {
+            margin-bottom: 15px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 8px;
+        }
+        .motion-group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        .motion-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0 5px 15px;
+            font-size: 13px;
+        }
+        .btn-delete-group, .btn-delete-motion {
+            background: #d9534f;
+            border: none;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .btn-delete-group:hover, .btn-delete-motion:hover {
+            background: #c9302c;
+        }
         body {
             margin: 0;
             padding: 0;
@@ -384,6 +415,64 @@
             0% { transform: scale(1); opacity: 0.5; }
             100% { transform: scale(2.2); opacity: 0; }
         }
+                /* ======== 动作控制面板样式 ======== */
+        #motion-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%;
+            max-width: 400px;
+            background: rgba(30, 30, 40, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            z-index: 10002;
+            padding: 20px;
+            color: #eee;
+            font-family: sans-serif;
+            display: none;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .motion-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .motion-row label {
+            font-size: 14px;
+            min-width: 100px;
+        }
+        .motion-row select, 
+        .motion-row input[type="number"] {
+            padding: 6px;
+            border-radius: 4px;
+            border: none;
+            background: rgba(255,255,255,0.1);
+            color: white;
+        }
+        .motion-row input[type="checkbox"] {
+            transform: scale(1.2);
+        }
+        .motion-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 8px;
+        }
+        .motion-panel-header h3 {
+            margin: 0;
+            font-size: 16px;
+        }
+        .close-panel-btn {
+            background: transparent;
+            border: none;
+            color: #aaa;
+            font-size: 18px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -484,8 +573,10 @@
         <div id="text-handle" class="control-button"><i class="fas fa-keyboard"></i></div>
         <div id="subtitle-handle" class="control-button"><i class="fas fa-closed-captioning"></i></div>
         <div id="info-handle" class="control-button"><i class="fas fa-info"></i></div>
+        <div id="motion-handle" class="control-button"><i class="fas fa-cog"></i></div>
         <div id="refresh-handle" class="control-button"><i class="fas fa-redo-alt"></i></div>
         <div id="close-handle" class="control-button"><i class="fas fa-times"></i></div>
+        
     </div>
 
     <!-- 模型切换指示器 -->
@@ -516,9 +607,41 @@
 
     <!-- 遮罩层 -->
     <div id="overlay"></div>
-
+    <!-- 动作控制面板 -->
+    <div id="motion-panel">
+        <div class="motion-panel-header">
+            <h3>动作设置</h3>
+            <button class="close-panel-btn" id="close-motion-panel-btn">✖</button>
+        </div>
+        <div class="motion-row">
+            <label>启用动作</label>
+            <input type="checkbox" id="motion-enable">
+        </div>
+        <div class="motion-row">
+            <label>闲置动作组</label>
+            <select id="motion-idle-group"></select>
+        </div>
+        <div class="motion-row">
+            <label>对话动作组</label>
+            <select id="motion-talk-group"></select>
+        </div>
+        <div class="motion-row">
+            <label>闲置间隔(秒)</label>
+            <input type="number" id="motion-idle-interval" min="5" step="1">
+        </div>
+        <div class="motion-row">
+            <label>导入动作文件</label>
+            <input type="file" id="motion-import-file" accept=".json,.motion3.json">
+        </div>
+        <div class="motion-row">
+            <label>管理动作</label>
+            <button id="manage-motion-btn" class="btn btn-secondary" style="background:#555; color: white;">打开动作管理</button>
+        </div>
+        <small style="font-size:11px; color:#aaa;">支持 .motion3.json 文件，导入后自动创建动作组</small>
+    </div>
     <!-- PIXI -->
     <script src="pixi.min.js"></script>
+    <script src="motion-controller.js"></script>
     
     <script>
         // === 全局强制关闭扩展函数 ===
@@ -859,7 +982,14 @@
                 model.anchor.set(0.5, 0.5); model.position.set(app.screen.width / 2, app.screen.height / 2); model.scale.set(modelScale);
                 modelX = app.screen.width / 2; modelY = app.screen.height / 2;
                 app.stage.addChild(model);
-                currentModelUrl = modelUrl; saveModelList(); startBasicAnimations();
+                currentModelUrl = modelUrl; saveModelList();
+
+                // 初始化动作控制器（如果已加载）
+                if (window.initMotionController) {
+                    window.initMotionController(model);
+                }
+
+startBasicAnimations();
                 
                 setTimeout(() => {
                     document.getElementById('model-switching-indicator').style.display = 'none'; isModelSwitching = false;
@@ -1393,7 +1523,9 @@ function setupTextInteraction() {
                     startTypewriterLoop();
                     break;
                 case 'startSpeaking':
-                    isOmniMode = false; ttsQueue.push(data); processTTSQueue(); break;
+                    isOmniMode = false; ttsQueue.push(data); processTTSQueue();
+                    if (window.triggerTalkMotion) window.triggerTalkMotion();
+                     break;
                 case 'stopSpeaking':
                     isOmniMode = false; isAudioStreaming = false; stopTypewriterLoop(); 
                     vrmAudioQueue = [];
@@ -1594,7 +1726,8 @@ function setupTextInteraction() {
                 text: document.getElementById('text-handle'), 
                 sub: document.getElementById('subtitle-handle'), 
                 ref: document.getElementById('refresh-handle'), 
-                close: document.getElementById('close-handle') 
+                close: document.getElementById('close-handle'),
+                motion: document.getElementById('motion-handle')
             };
 
             const showTT = (btn, keyFn) => { if (!btn) return; const r = btn.getBoundingClientRect(); tt.textContent = typeof keyFn === 'function' ? keyFn() : i18nDict[currentLang][keyFn]; ttc.style.left = `${r.left - tt.offsetWidth - 15}px`; ttc.style.top = `${r.top + (r.height - tt.offsetHeight) / 2}px`; ttc.style.opacity = '1'; ttc.style.transform = 'translateX(0)'; };
@@ -1739,7 +1872,16 @@ function setupTextInteraction() {
             const showCP = () => { clearTimeout(tOut); cp.style.opacity = '1'; cp.style.visibility = 'visible'; cp.style.transform = 'translateX(0)'; cp.style.pointerEvents = 'auto'; };
             const hideCP = () => { if(!isHov){ cp.style.opacity = '0'; cp.style.visibility = 'hidden'; cp.style.transform = 'translateX(20px)'; cp.style.pointerEvents = 'none'; } };
             const sched = () => { clearTimeout(tOut); tOut = setTimeout(hideCP, 2000); };
-            
+            // 动作面板开关
+            const motionPanel = document.getElementById('motion-panel');
+            btns.motion.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                motionPanel.style.display = motionPanel.style.display === 'flex' ? 'none' : 'flex';
+            });
+            document.getElementById('close-motion-panel-btn').addEventListener('click', () => {
+                motionPanel.style.display = 'none';
+            });
             document.body.addEventListener('mouseenter', showCP);
             document.body.addEventListener('mousemove', () => { showCP(); sched(); });
             document.body.addEventListener('mouseleave', () => { if(!isHov) sched(); });
@@ -1792,5 +1934,17 @@ function setupTextInteraction() {
 
 
     </script>
+<!-- 动作管理模态框 -->
+<div id="manage-overlay" style="display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.6); z-index: 10003;"></div>
+<div id="motion-manage-modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 500px; background: #2c2c3a; border-radius: 12px; padding: 20px; z-index: 10004; color: white; backdrop-filter: blur(10px); flex-direction: column; gap: 12px;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin:0;">已导入的动作</h3>
+        <button id="close-manage-modal" style="background: none; border: none; color: white; font-size: 20px; cursor: pointer;">✖</button>
+    </div>
+    <div id="motion-manage-list" style="max-height: 400px; overflow-y: auto;">
+        <!-- 动态列表会由 motion-controller.js 填充 -->
+    </div>
+    <div style="font-size: 12px; color: #ccc; text-align: center;">点击“删除”可移除动作组或单个动作</div>
+</div>
 </body>
 </html>
