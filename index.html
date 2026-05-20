@@ -1521,14 +1521,46 @@ function setupTextInteraction() {
                     nextExpectedIndex = 0;
                     isVrmPlaying = false;
                     break;
+
                 case 'omniStreaming':
+                    if (!isOmniMode || (data.text && data.text.length < fullTargetText.length)) {
+                        fullTargetText = "";
+                        currentVisibleCount = 0;
+                        displayStartIndex = 0;
+                        omniNextStartTime = 0;
+                        stopTypewriterLoop();
+                        clearSubtitle();
+                    }
                     isOmniMode = true; isAudioStreaming = true;
                     if (data.text) fullTargetText = data.text;
+                    
+                    // --- 核心修改：支持 Live2D 纯文本模式下的表情与动作提取与触发 ---
+                    if (data.expressions && Array.isArray(data.expressions) && data.expressions.length > 0 && model) {
+                        const caps = getModelCapabilities();
+                        let targetExp = null, targetMot = null;
+                        
+                        for (let tag of data.expressions) {
+                            // 清理可能包含的标点标签修饰符，如 <happy>, [sad], *angry* 等
+                            const cleanTag = tag.replace(/[<>\[\]\(\)\*]/g, '').trim().toLowerCase();
+                            if (!targetExp) targetExp = caps.expressions.find(e => e.toLowerCase() === cleanTag);
+                            if (!targetMot) targetMot = caps.motions.find(m => m.toLowerCase() === cleanTag);
+                        }
+                        if (targetExp) {
+                            try { model.expression(targetExp); } catch (e) { console.warn("Apply expression failed:", e); }
+                        }
+                        if (targetMot) {
+                            try { model.motion(targetMot, undefined, 3); } catch (e) { console.warn("Apply motion failed:", e); }
+                        }
+                    }
+
+                    // 只有接收到音频二进制数据时，才会启动 Live2D 声控口型动画
                     if (data.audioData) processOmniStreaming(data);
                     startTypewriterLoop();
                     break;
+
                 case 'startSpeaking':
                     isOmniMode = false; ttsQueue.push(data); processTTSQueue(); break;
+
                 case 'stopSpeaking':
                     isOmniMode = false; isAudioStreaming = false; stopTypewriterLoop(); 
                     vrmAudioQueue = [];
@@ -1536,9 +1568,14 @@ function setupTextInteraction() {
                     nextExpectedIndex = 0;
                     isVrmPlaying = false;
                     break;
+
                 case 'allChunksCompleted':
-                    isOmniMode = false; isAudioStreaming = false; 
-                    if (currentVisibleCount >= fullTargetText.length && !isPlayingTTS) finalizeSpeech(false);
+                    isAudioStreaming = false; 
+                    // 核心修改：生成完毕后不直接截断，如果打字机没有打完字，等待打字机结束后再 finalizeSpeech
+                    if (currentVisibleCount >= fullTargetText.length && !isPlayingTTS) {
+                        isOmniMode = false;
+                        finalizeSpeech(false);
+                    }
                     break;
             }
         }
@@ -1590,9 +1627,75 @@ function setupTextInteraction() {
             }
             state.animationId = requestAnimationFrame(update);
         }
+        // 1. 抽取合并：字幕滚动渲染复用辅助函数
+        function updateSubtitleAndRoll() {
+            if (currentVisibleCount - displayStartIndex > MAX_WINDOW_SIZE) {
+                let targetStartIndex = currentVisibleCount - OVERLAP_SIZE;
+                const lookbackRange = Math.floor(MAX_WINDOW_SIZE * 0.6); 
+                const searchText = fullTargetText.slice(currentVisibleCount - lookbackRange, currentVisibleCount);
+                let lastPuncIndex = -1;
+                for (let i = searchText.length - 1; i >= 0; i--) {
+                    if (SAFE_PUNC_LIST.test(searchText[i])) { 
+                        lastPuncIndex = i; 
+                        break; 
+                    }
+                }
+                if (lastPuncIndex !== -1) {
+                    const newOverlap = currentVisibleCount - ((currentVisibleCount - lookbackRange) + lastPuncIndex + 1);
+                    if (newOverlap >= 5 && newOverlap <= MAX_WINDOW_SIZE * 0.8) {
+                        targetStartIndex = (currentVisibleCount - lookbackRange) + lastPuncIndex + 1;
+                    }
+                }
+                displayStartIndex = targetStartIndex; 
+                triggerPageFlipEffect();
+            }
+            renderSubtitleUI((displayStartIndex > 0 ? "..." : "") + fullTargetText.slice(displayStartIndex, currentVisibleCount));
+        }
 
+        // 2. 升级后的打字机循环（兼容纯文本无声输出）
         function startTypewriterLoop() {
             if (typewriterTimer) return;
+
+            // 检测当前是否处于纯文本无声模式（未加载音频 context 或是无音轨的纯字幕模式）
+            const isTextOnlyMode = !currentAudioContext || !chunkAnimations.has('omni_live_stream');
+
+            if (isTextOnlyMode) {
+                let lastUpdateTime = performance.now();
+                const CHARS_PER_SECOND = 8; // 每秒打 8 个中文字，体验更平稳舒适
+
+                function typeTextOnly() {
+                    if (!isOmniMode) {
+                        typewriterTimer = null;
+                        return;
+                    }
+
+                    const now = performance.now();
+                    const elapsed = now - lastUpdateTime;
+                    const interval = 1000 / CHARS_PER_SECOND;
+
+                    if (elapsed >= interval) {
+                        if (currentVisibleCount < fullTargetText.length) {
+                            currentVisibleCount++;
+                            updateSubtitleAndRoll();
+                        }
+                        // 修正余数，确保高精度打字，避免跳字
+                        lastUpdateTime = now - (elapsed % interval);
+                    }
+
+                    // 只有当文字全部显示完毕，且流传输完全结束时，才收网重置
+                    if (currentVisibleCount >= fullTargetText.length && !isAudioStreaming) {
+                        typewriterTimer = null;
+                        isOmniMode = false;
+                        finalizeSpeech(false);
+                    } else {
+                        typewriterTimer = requestAnimationFrame(typeTextOnly);
+                    }
+                }
+                typewriterTimer = requestAnimationFrame(typeTextOnly);
+                return;
+            }
+
+            // 标准音频同步打字逻辑 (原版逻辑)
             function syncTextToAudio() {
                 if (!isOmniMode || !currentAudioContext) { typewriterTimer = null; return; }
                 const now = currentAudioContext.currentTime, totalChars = fullTargetText.length;
@@ -1602,19 +1705,7 @@ function setupTextInteraction() {
                     if (!isAudioStreaming && now >= omniNextStartTime) targetCharCount = totalChars;
                     if (targetCharCount > currentVisibleCount) {
                         currentVisibleCount = targetCharCount;
-                        if (currentVisibleCount - displayStartIndex > MAX_WINDOW_SIZE) {
-                            let targetStartIndex = currentVisibleCount - OVERLAP_SIZE;
-                            const lookbackRange = Math.floor(MAX_WINDOW_SIZE * 0.6); 
-                            const searchText = fullTargetText.slice(currentVisibleCount - lookbackRange, currentVisibleCount);
-                            let lastPuncIndex = -1;
-                            for (let i = searchText.length - 1; i >= 0; i--) if (SAFE_PUNC_LIST.test(searchText[i])) { lastPuncIndex = i; break; }
-                            if (lastPuncIndex !== -1) {
-                                const newOverlap = currentVisibleCount - ((currentVisibleCount - lookbackRange) + lastPuncIndex + 1);
-                                if (newOverlap >= 5 && newOverlap <= MAX_WINDOW_SIZE * 0.8) targetStartIndex = (currentVisibleCount - lookbackRange) + lastPuncIndex + 1;
-                            }
-                            displayStartIndex = targetStartIndex; triggerPageFlipEffect();
-                        }
-                        renderSubtitleUI((displayStartIndex > 0 ? "..." : "") + fullTargetText.slice(displayStartIndex, currentVisibleCount));
+                        updateSubtitleAndRoll();
                     }
                 }
                 if (!isOmniMode || (!isAudioStreaming && currentVisibleCount >= totalChars)) {
